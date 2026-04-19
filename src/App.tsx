@@ -1,0 +1,29 @@
+import { Navigate, Route, Routes } from "react-router-dom";
+import { Layout } from "@/components/Layout";
+import { ViewerPage } from "@/pages/ViewerPage";
+import { TeamViewerPage } from "@/pages/TeamViewerPage";
+import { AdminDashboard } from "@/pages/AdminDashboard";
+import { AdminLoginPage } from "@/pages/AdminLoginPage";
+import { RequireAuth } from "@/components/RequireAuth";
+import { ADMIN_APP_ROUTES } from "@/lib/auth/admin";
+
+export function App() {
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<ViewerPage />} />
+        <Route path="t/:tournamentId/team/:teamId" element={<TeamViewerPage />} />
+        <Route path={ADMIN_APP_ROUTES.login} element={<AdminLoginPage />} />
+        <Route
+          path={ADMIN_APP_ROUTES.root}
+          element={
+            <RequireAuth>
+              <AdminDashboard />
+            </RequireAuth>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}

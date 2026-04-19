@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "config": {
+      "adminUids": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "tournaments": {
+      ".read": true,
+      "$tournamentId": {
+        ".write": "auth != null && (auth.token.email == 'john.limpiada@felice.ed.jp' || root.child('config/adminUids').child(auth.uid).val() === true)"
+      }
+    }
+  }
+}
