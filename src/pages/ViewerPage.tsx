@@ -32,6 +32,9 @@ import {
 } from "@/lib/tournament/leagueSplit";
 import { parseViewerDisplayParams, VIEWER_GRADES } from "@/lib/viewerDisplay";
 
+/** Shown in projector + kiosk header when tournament meta has no name yet (replaces plain “Tournament” text). */
+const PROJECTOR_KIOSK_FALLBACK_LOGO_SRC = "https://i.imgur.com/RpJzD9D.png";
+
 export function ViewerPage() {
   const [tournamentId, setTournamentId] = useTournamentId();
   const [searchParams] = useSearchParams();
@@ -286,26 +289,28 @@ export function ViewerPage() {
     [resMatchesB]
   );
 
+  const projectionMode = displayMode;
+
   const h2Section = displayMode
-    ? "font-display text-2xl md:text-3xl font-semibold mb-3"
+    ? "font-displayWide text-2xl md:text-3xl font-semibold mb-3 text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide"
     : "font-display text-lg font-semibold mb-3";
   const h3League = displayMode
-    ? "text-sm md:text-base font-semibold text-cup-muted mb-1"
+    ? "text-sm md:text-base font-semibold text-cup-signalMuted mb-1 tracking-wide"
     : "text-xs font-semibold text-cup-muted mb-1";
   const h3Bracket = displayMode
-    ? "text-base md:text-lg font-semibold text-cup-muted mb-2"
+    ? "text-base md:text-lg font-semibold text-cup-signalMuted mb-2 tracking-wide"
     : "text-sm font-semibold text-cup-muted mb-2";
   const h2Major = displayMode
-    ? "font-display text-2xl md:text-3xl font-semibold"
+    ? "font-displayWide text-2xl md:text-3xl font-semibold text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide"
     : "font-display text-lg font-semibold";
   const bodyMuted = displayMode
-    ? "text-base text-cup-muted max-w-2xl"
+    ? "text-base text-slate-400 max-w-2xl"
     : "text-sm text-cup-muted max-w-2xl";
   const bodyMutedNarrow = displayMode
-    ? "text-base text-cup-muted max-w-xl"
+    ? "text-base text-slate-400 max-w-xl"
     : "text-sm text-cup-muted max-w-xl";
   const interSchoolBanner = displayMode
-    ? "text-base font-medium text-cup-ink border border-cup-line rounded-lg px-4 py-3 bg-cup-paper/50 max-w-2xl"
+    ? "text-base font-medium text-slate-100 border border-cup-stageBorder rounded-xl px-4 py-3 bg-cup-stageElevated/90 max-w-2xl"
     : "text-sm font-medium text-cup-ink border border-cup-line rounded-lg px-3 py-2 bg-cup-paper/50 max-w-xl";
 
   const normalViewSearch = useMemo(() => {
@@ -318,7 +323,13 @@ export function ViewerPage() {
   }, [searchParams]);
 
   return (
-    <div className={displayMode ? "space-y-10" : "space-y-8"}>
+    <div
+      className={
+        displayMode
+          ? "projection-shell space-y-10 rounded-2xl px-2 py-3 md:px-4 md:py-5"
+          : "space-y-8"
+      }
+    >
       {!displayMode ? (
         <div className="flex flex-wrap gap-4 items-end">
           <label className="flex flex-col gap-1 text-sm">
@@ -347,13 +358,24 @@ export function ViewerPage() {
       ) : null}
 
       {displayMode && kioskMode ? (
-        <header className="text-center border-b border-cup-line pb-6 mb-2">
-          <h1 className="font-display text-3xl md:text-5xl font-semibold text-cup-ink tracking-tight">
-            {meta?.name ?? "Tournament"}
+        <header className="text-center border-b border-cup-stageBorder pb-6 mb-2">
+          <h1 className="font-display text-3xl md:text-5xl font-semibold text-slate-50 tracking-tight flex justify-center">
+            {meta?.name?.trim() ? (
+              meta.name.trim()
+            ) : (
+              <img
+                src={PROJECTOR_KIOSK_FALLBACK_LOGO_SRC}
+                alt="Felice Roboccia Cup"
+                className="max-h-[min(22vh,200px)] w-auto object-contain mx-auto"
+                decoding="async"
+              />
+            )}
           </h1>
-          <p className="text-cup-muted text-xl md:text-2xl mt-3 font-medium">{grade}</p>
-          {meta ? (
-            <p className="text-cup-muted text-lg mt-1">School year {meta.schoolYear}</p>
+          <p className="font-displayWide text-cup-signal text-xl md:text-3xl mt-3 font-semibold tracking-wide">
+            {grade}
+          </p>
+          {meta && Number.isFinite(Number(meta.schoolYear)) ? (
+            <p className="text-slate-400 text-lg mt-1 tabular-nums">{meta.schoolYear}</p>
           ) : null}
         </header>
       ) : null}
@@ -363,7 +385,7 @@ export function ViewerPage() {
           <h1
             className={
               displayMode
-                ? "font-display text-3xl md:text-4xl font-semibold text-cup-ink"
+                ? "font-display text-3xl md:text-4xl font-semibold text-slate-50"
                 : "font-display text-2xl font-semibold text-cup-ink"
             }
           >
@@ -371,7 +393,7 @@ export function ViewerPage() {
             <span
               className={
                 displayMode
-                  ? "text-cup-muted font-sans text-xl md:text-2xl font-normal"
+                  ? "text-slate-400 font-sans text-xl md:text-2xl font-normal"
                   : "text-cup-muted font-sans text-lg font-normal"
               }
             >
@@ -409,7 +431,7 @@ export function ViewerPage() {
                 <StandingsTable
                   standings={standA_L1}
                   nameById={nameById}
-                  projector={displayMode}
+                  projectionMode={projectionMode}
                 />
               </div>
               <div>
@@ -417,12 +439,12 @@ export function ViewerPage() {
                 <StandingsTable
                   standings={standA_L2}
                   nameById={nameById}
-                  projector={displayMode}
+                  projectionMode={projectionMode}
                 />
               </div>
             </div>
           ) : (
-            <StandingsTable standings={standA} nameById={nameById} projector={displayMode} />
+            <StandingsTable standings={standA} nameById={nameById} projectionMode={projectionMode} />
           )}
         </div>
         {!isUnified ? (
@@ -437,7 +459,7 @@ export function ViewerPage() {
                   <StandingsTable
                     standings={standB_L1}
                     nameById={nameById}
-                    projector={displayMode}
+                    projectionMode={projectionMode}
                   />
                 </div>
                 <div>
@@ -445,12 +467,12 @@ export function ViewerPage() {
                   <StandingsTable
                     standings={standB_L2}
                     nameById={nameById}
-                    projector={displayMode}
+                    projectionMode={projectionMode}
                   />
                 </div>
               </div>
             ) : (
-              <StandingsTable standings={standB} nameById={nameById} projector={displayMode} />
+              <StandingsTable standings={standB} nameById={nameById} projectionMode={projectionMode} />
             )}
           </div>
         ) : null}
@@ -470,7 +492,7 @@ export function ViewerPage() {
               matchesA={qualA}
               matchesB={qualB}
               nameById={nameById}
-              projector={displayMode}
+              projectionMode={projectionMode}
             />
           </div>
         ) : effLeagueCountA === 2 ? (
@@ -479,13 +501,13 @@ export function ViewerPage() {
               title={`Schedule — ${grade} · ${divisionLabel(meta, "A")} · League 1`}
               matches={qualA_L1}
               nameById={nameById}
-              projector={displayMode}
+              projectionMode={projectionMode}
             />
             <QualifyingScheduleList
               title={`Schedule — ${grade} · ${divisionLabel(meta, "A")} · League 2`}
               matches={qualA_L2}
               nameById={nameById}
-              projector={displayMode}
+              projectionMode={projectionMode}
             />
           </div>
         ) : (
@@ -493,7 +515,7 @@ export function ViewerPage() {
             title={`Schedule — ${grade} · ${divisionLabel(meta, "A")}`}
             matches={qualA}
             nameById={nameById}
-            projector={displayMode}
+            projectionMode={projectionMode}
           />
         )}
         {!isUnified && !(effLeagueCountA === 1 && effLeagueCountB === 1) ? (
@@ -503,13 +525,13 @@ export function ViewerPage() {
                 title={`Schedule — ${grade} · ${divisionLabel(meta, "B")} · League 1`}
                 matches={qualB_L1}
                 nameById={nameById}
-                projector={displayMode}
+                projectionMode={projectionMode}
               />
               <QualifyingScheduleList
                 title={`Schedule — ${grade} · ${divisionLabel(meta, "B")} · League 2`}
                 matches={qualB_L2}
                 nameById={nameById}
-                projector={displayMode}
+                projectionMode={projectionMode}
               />
             </div>
           ) : (
@@ -517,7 +539,7 @@ export function ViewerPage() {
               title={`Schedule — ${grade} · ${divisionLabel(meta, "B")}`}
               matches={qualB}
               nameById={nameById}
-              projector={displayMode}
+              projectionMode={projectionMode}
             />
           )
         ) : null}
@@ -535,7 +557,9 @@ export function ViewerPage() {
             {resMetaU?.completedWinnerTeamId ? (
               <p
                 className={
-                  displayMode ? "text-base font-medium text-cup-win" : "text-sm font-medium text-cup-win"
+                  displayMode
+                    ? "text-base font-medium text-cup-winBright"
+                    : "text-sm font-medium text-cup-win"
                 }
               >
                 Resurrection winner:{" "}
@@ -547,6 +571,7 @@ export function ViewerPage() {
               <BracketRounds
                 matches={resListU}
                 nameById={nameById}
+                projectionMode={projectionMode}
                 emptyMessage="No resurrection bracket for this grade yet (or a single below-cut team was auto-crowned with no matches)."
                 winnerBannerTitle="Winner"
                 footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
@@ -561,7 +586,7 @@ export function ViewerPage() {
                 <p
                   className={
                     displayMode
-                      ? "text-base font-medium text-cup-win mb-2"
+                      ? "text-base font-medium text-cup-winBright mb-2"
                       : "text-sm font-medium text-cup-win mb-2"
                   }
                 >
@@ -574,6 +599,7 @@ export function ViewerPage() {
                 <BracketRounds
                   matches={resListA}
                   nameById={nameById}
+                  projectionMode={projectionMode}
                   emptyMessage="No resurrection bracket for this pool yet."
                   winnerBannerTitle="Winner"
                   footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
@@ -586,7 +612,7 @@ export function ViewerPage() {
                 <p
                   className={
                     displayMode
-                      ? "text-base font-medium text-cup-win mb-2"
+                      ? "text-base font-medium text-cup-winBright mb-2"
                       : "text-sm font-medium text-cup-win mb-2"
                   }
                 >
@@ -599,6 +625,7 @@ export function ViewerPage() {
                 <BracketRounds
                   matches={resListB}
                   nameById={nameById}
+                  projectionMode={projectionMode}
                   emptyMessage="No resurrection bracket for this pool yet."
                   winnerBannerTitle="Winner"
                   footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
@@ -613,20 +640,32 @@ export function ViewerPage() {
         <h2 className={`${h2Major} mb-3`}>Finals bracket — {grade}</h2>
         {isUnified ? (
           <div className="min-w-0 overflow-x-hidden">
-            <BracketRounds matches={finalsUnified} nameById={nameById} />
+            <BracketRounds
+              matches={finalsUnified}
+              nameById={nameById}
+              projectionMode={projectionMode}
+            />
           </div>
         ) : (
           <div className="grid lg:grid-cols-2 gap-6">
             <div className="min-w-0">
               <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "A")} finals</h3>
               <div className="min-w-0 overflow-x-hidden">
-                <BracketRounds matches={finalsA} nameById={nameById} />
+                <BracketRounds
+                  matches={finalsA}
+                  nameById={nameById}
+                  projectionMode={projectionMode}
+                />
               </div>
             </div>
             <div className="min-w-0">
               <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "B")} finals</h3>
               <div className="min-w-0 overflow-x-hidden">
-                <BracketRounds matches={finalsB} nameById={nameById} />
+                <BracketRounds
+                  matches={finalsB}
+                  nameById={nameById}
+                  projectionMode={projectionMode}
+                />
               </div>
             </div>
           </div>
@@ -634,13 +673,23 @@ export function ViewerPage() {
       </section>
 
       {kioskMode ? (
-        <p className="text-center text-sm text-cup-muted pt-4 border-t border-cup-line">
+        <p
+          className={
+            displayMode
+              ? "text-center text-sm text-slate-500 pt-4 border-t border-cup-stageBorder"
+              : "text-center text-sm text-cup-muted pt-4 border-t border-cup-line"
+          }
+        >
           <Link
             to={{
               pathname: "/",
               search: normalViewSearch || undefined,
             }}
-            className="text-cup-accent underline hover:no-underline"
+            className={
+              displayMode
+                ? "text-cup-signal underline hover:text-cup-signalMuted hover:no-underline"
+                : "text-cup-accent underline hover:no-underline"
+            }
           >
             Normal view
           </Link>

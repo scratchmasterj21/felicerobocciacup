@@ -5,3 +5,21 @@
 body {
   @apply bg-cup-paper text-cup-ink antialiased min-h-screen;
 }
+
+/**
+ * Live projection (?display=1): subtle grid + warm top glow (pairs with cup.stage in Tailwind).
+ */
+@layer components {
+  /* Overlays Layout `bg-cup-stage`: grid + warm glow only (no second solid fill). */
+  .projection-shell {
+    @apply min-w-0 text-slate-100;
+    background-image: linear-gradient(
+        180deg,
+        rgba(245, 197, 66, 0.08) 0%,
+        transparent 38%
+      ),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 100% 100%, 28px 28px, 28px 28px;
+  }
+}

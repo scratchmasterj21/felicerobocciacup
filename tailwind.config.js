@@ -11,6 +11,8 @@ export default {
           "sans-serif",
         ],
         display: ["Outfit", "system-ui", "sans-serif"],
+        /** Broadcast / projector section titles only */
+        displayWide: ["Orbitron", "system-ui", "sans-serif"],
       },
       colors: {
         cup: {
@@ -22,6 +24,16 @@ export default {
           win: "#1d7a5c",
           loss: "#a63d3d",
           draw: "#7a6f2d",
+          /** Live projection (?display=1) dark “arena” theme */
+          stage: "#080c12",
+          stageElevated: "#111923",
+          stageBorder: "#273041",
+          signal: "#f5c542",
+          signalMuted: "#c9a227",
+          /** W/D/L tuned for dark panels */
+          winBright: "#34d399",
+          lossBright: "#f87171",
+          drawBright: "#fbbf24",
         },
       },
     },

@@ -9,48 +9,65 @@ export function QualifyingScheduleList({
   matches,
   nameById,
   projector,
+  projectionMode,
 }: {
   title: string;
   matches: QualifyingMatchData[];
   nameById: Map<string, string>;
   projector?: boolean;
+  projectionMode?: boolean;
 }) {
+  const large = Boolean(projectionMode || projector);
+  const arena = Boolean(projectionMode);
+
   const sorted = useMemo(
     () => [...matches].sort(compareQualifyingByScheduleThenRound),
     [matches]
   );
 
+  const h3 = arena
+    ? "font-displayWide text-xl md:text-2xl font-semibold mb-2 text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide"
+    : large
+      ? "font-display text-xl md:text-2xl font-semibold mb-2"
+      : "font-display text-base font-semibold mb-2";
+
+  const emptyP = arena
+    ? "text-base text-slate-400"
+    : large
+      ? "text-base text-cup-muted"
+      : "text-sm text-cup-muted";
+
   if (sorted.length === 0) {
     return (
       <div>
-        <h3
-          className={
-            projector
-              ? "font-display text-xl md:text-2xl font-semibold mb-2"
-              : "font-display text-base font-semibold mb-2"
-          }
-        >
-          {title}
-        </h3>
-        <p className={projector ? "text-base text-cup-muted" : "text-sm text-cup-muted"}>
-          No matches.
-        </p>
+        <h3 className={h3}>{title}</h3>
+        <p className={emptyP}>No matches.</p>
       </div>
     );
   }
 
+  const liBase = arena
+    ? "rounded-xl border border-cup-stageBorder bg-cup-stageElevated/90 px-4 py-3 shadow-md shadow-black/15"
+    : large
+      ? "rounded-lg border border-cup-line bg-white px-4 py-3"
+      : "rounded-lg border border-cup-line bg-white px-3 py-2";
+
+  const winTone = (w: "Win" | "Loss" | "Draw" | null) => {
+    if (!w) return arena ? "text-slate-400" : "text-cup-muted";
+    if (arena) {
+      if (w === "Win") return "text-cup-winBright";
+      if (w === "Loss") return "text-cup-lossBright";
+      return "text-cup-drawBright";
+    }
+    if (w === "Win") return "text-cup-win";
+    if (w === "Loss") return "text-cup-loss";
+    return "text-cup-draw";
+  };
+
   return (
     <div>
-      <h3
-        className={
-          projector
-            ? "font-display text-xl md:text-2xl font-semibold mb-2"
-            : "font-display text-base font-semibold mb-2"
-        }
-      >
-        {title}
-      </h3>
-      <ul className={projector ? "space-y-3 text-base" : "space-y-2 text-sm"}>
+      <h3 className={h3}>{title}</h3>
+      <ul className={large ? "space-y-3 text-base" : "space-y-2 text-sm"}>
         {sorted.map((m) => {
           const teamA = nameById.get(m.teamAId) ?? m.teamAId;
           const teamB = nameById.get(m.teamBId) ?? m.teamBId;
@@ -75,39 +92,21 @@ export function QualifyingScheduleList({
                 : m.outcome === "DRAW"
                   ? "Draw"
                   : null;
-          const toneA =
-            resultA === "Win"
-              ? "text-cup-win"
-              : resultA === "Loss"
-                ? "text-cup-loss"
-                : resultA === "Draw"
-                  ? "text-cup-draw"
-                  : "text-cup-muted";
-          const toneB =
-            resultB === "Win"
-              ? "text-cup-win"
-              : resultB === "Loss"
-                ? "text-cup-loss"
-                : resultB === "Draw"
-                  ? "text-cup-draw"
-                  : "text-cup-muted";
+          const toneA = winTone(resultA);
+          const toneB = winTone(resultB);
+          const muted = arena ? "text-slate-400" : "text-cup-muted";
+          const ink = arena ? "text-slate-100" : "text-cup-ink";
+          const borderT = arena ? "border-cup-stageBorder" : "border-cup-line/70";
 
           return (
-            <li
-              key={m.id}
-              className={
-                projector
-                  ? "rounded-lg border border-cup-line bg-white px-4 py-3"
-                  : "rounded-lg border border-cup-line bg-white px-3 py-2"
-              }
-            >
+            <li key={m.id} className={liBase}>
               <div>
-                <span className="font-medium">{teamA}</span>
-                <span className="text-cup-muted mx-1">vs</span>
-                <span className="font-medium">{teamB}</span>
+                <span className={`font-medium ${ink}`}>{teamA}</span>
+                <span className={`${muted} mx-1`}>vs</span>
+                <span className={`font-medium ${ink}`}>{teamB}</span>
                 <span
                   className={
-                    projector ? "text-cup-muted text-sm ml-2" : "text-cup-muted text-xs ml-2"
+                    large ? `${muted} text-sm ml-2` : `${muted} text-xs ml-2`
                   }
                 >
                   R{m.round}
@@ -115,7 +114,7 @@ export function QualifyingScheduleList({
               </div>
               <div
                 className={
-                  projector ? "text-sm text-cup-muted mt-1.5" : "text-xs text-cup-muted mt-1"
+                  large ? `text-sm ${muted} mt-1.5` : `text-xs ${muted} mt-1`
                 }
               >
                 {m.schedule?.startAt != null ? (
@@ -130,12 +129,12 @@ export function QualifyingScheduleList({
               {isCompleted && totals ? (
                 <div
                   className={
-                    projector
-                      ? "mt-2 border-t border-cup-line/70 pt-2 text-sm"
-                      : "mt-1.5 border-t border-cup-line/70 pt-1.5 text-xs"
+                    large
+                      ? `mt-2 border-t ${borderT} pt-2 text-sm`
+                      : `mt-1.5 border-t ${borderT} pt-1.5 text-xs`
                   }
                 >
-                  <div className="font-medium text-cup-ink">
+                  <div className={`font-medium ${ink}`}>
                     Final score: {totals.totalA}-{totals.totalB}
                   </div>
                   <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">

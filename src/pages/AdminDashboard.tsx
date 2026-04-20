@@ -123,6 +123,8 @@ export function AdminDashboard() {
   >(null);
   const [qMatches, setQMatches] = useState<Record<string, QualifyingMatchData> | null>(null);
   const [grade, setGrade] = useState("G1");
+  /** Grade passed to the public projector URL (`?grade=`); independent of admin working grade. */
+  const [projectorGrade, setProjectorGrade] = useState("G1");
   const [fMatches, setFMatches] = useState<Record<string, FinalMatchData> | null>(null);
 
   const [newTournamentName, setNewTournamentName] = useState("Felice Roboccia Cup 2026");
@@ -140,6 +142,7 @@ export function AdminDashboard() {
 
   const [metaLabelA, setMetaLabelA] = useState("");
   const [metaLabelB, setMetaLabelB] = useState("");
+  const [metaSchoolYear, setMetaSchoolYear] = useState(2026);
   const [metaQualifyingMode, setMetaQualifyingMode] = useState<
     "twoPools" | "unified"
   >("twoPools");
@@ -175,6 +178,27 @@ export function AdminDashboard() {
   const [resFilter, setResFilter] = useState<GridFilter>("unfinished");
   const [finalsFilter, setFinalsFilter] = useState<GridFilter>("unfinished");
 
+  const liveViewHref = useMemo(() => {
+    const p = new URLSearchParams();
+    if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
+    const q = p.toString();
+    return q ? `/?${q}` : "/";
+  }, [tournamentId]);
+
+  const projectorLiveHref = useMemo(() => {
+    const p = new URLSearchParams();
+    p.set("display", "1");
+    p.set("kiosk", "1");
+    if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
+    p.set("grade", projectorGrade);
+    return `/?${p.toString()}`;
+  }, [tournamentId, projectorGrade]);
+
+  useEffect(() => {
+    setProjectorGrade(grade);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- align projector pick only when tournament ID changes
+  }, [tournamentId]);
+
   useEffect(() => {
     return subscribeTournamentMeta(tournamentId, setMeta);
   }, [tournamentId]);
@@ -182,6 +206,8 @@ export function AdminDashboard() {
     if (!meta) return;
     setMetaLabelA(meta.divisionLabelA ?? "");
     setMetaLabelB(meta.divisionLabelB ?? "");
+    const y = Number(meta.schoolYear);
+    setMetaSchoolYear(Number.isFinite(y) ? y : 2026);
     setMetaQualifyingMode(
       meta.qualifyingMode === "unified" ? "unified" : "twoPools"
     );
@@ -659,6 +685,16 @@ export function AdminDashboard() {
     });
   }
 
+  async function onSaveSchoolYear(e: FormEvent) {
+    e.preventDefault();
+    const y = Math.round(metaSchoolYear);
+    if (!Number.isFinite(y) || y < 1900 || y > 2100) {
+      window.alert("Enter a school year between 1900 and 2100.");
+      return;
+    }
+    await updateTournamentMetaPartial(tournamentId, { schoolYear: y });
+  }
+
   async function onSaveDivisionLabels(e: FormEvent) {
     e.preventDefault();
     await updateTournamentMetaPartial(tournamentId, {
@@ -1113,16 +1149,40 @@ export function AdminDashboard() {
             Signed in as {user?.email ?? user?.uid}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
-            to="/"
-            className="px-4 py-2 rounded-lg border border-cup-line text-sm font-medium bg-white"
+            to={liveViewHref}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-cup-line bg-white px-4 text-sm font-medium text-cup-ink"
           >
             Live view
           </Link>
+          <div className="inline-flex h-10 items-center gap-2 rounded-lg border border-cup-line bg-white px-3">
+            <span className="text-xs text-cup-muted whitespace-nowrap">Grade</span>
+            <select
+              id="admin-projector-grade"
+              className="min-w-[3.25rem] shrink-0 cursor-pointer border-0 bg-transparent py-0 text-sm font-medium text-cup-ink focus:outline-none focus:ring-0"
+              value={projectorGrade}
+              onChange={(e) => setProjectorGrade(e.target.value)}
+              aria-label="Projector grade"
+            >
+              {GRADES.map((g) => (
+                <option key={g} value={g}>
+                  {g}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Link
+            to={projectorLiveHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-cup-line bg-cup-paper/60 px-4 text-sm font-medium text-cup-ink"
+          >
+            Open projector
+          </Link>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg bg-cup-ink text-cup-paper text-sm font-medium"
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-cup-ink px-4 text-sm font-medium text-cup-paper"
             onClick={() => signOut(getFirebaseAuth())}
           >
             Sign out
@@ -1143,8 +1203,31 @@ export function AdminDashboard() {
         {meta ? (
           <div className="space-y-4">
             <p className="text-sm">
-              Current: <strong>{meta.name}</strong> ({meta.schoolYear})
+              Current: <strong>{meta.name}</strong> (
+              {Number.isFinite(Number(meta.schoolYear)) ? meta.schoolYear : "—"})
             </p>
+            <form
+              onSubmit={onSaveSchoolYear}
+              className="flex flex-wrap gap-3 items-end border-t border-cup-line pt-4"
+            >
+              <label className="flex flex-col gap-1 text-sm">
+                <span>School year</span>
+                <input
+                  type="number"
+                  className="border border-cup-line rounded-md px-3 py-2 w-28"
+                  value={metaSchoolYear}
+                  onChange={(e) => setMetaSchoolYear(Number(e.target.value))}
+                  min={1900}
+                  max={2100}
+                />
+              </label>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg border border-cup-line text-sm font-medium bg-white"
+              >
+                Save school year
+              </button>
+            </form>
             <p className="text-sm border border-cup-line rounded-lg px-3 py-2 bg-cup-paper/40 max-w-xl">
               <span className="text-cup-muted">Tournament kind:</span>{" "}
               <strong>

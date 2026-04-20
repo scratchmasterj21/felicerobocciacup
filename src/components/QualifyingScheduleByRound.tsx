@@ -4,15 +4,32 @@ import { compareQualifyingByScheduleThenRound } from "@/lib/schedule/matchSort";
 import { formatScheduleTokyo } from "@/lib/schedule/tokyo";
 import { regulationTotals } from "@/lib/tournament/roundRobin";
 
+function winTone(arena: boolean, w: "Win" | "Loss" | "Draw" | null) {
+  if (!w) return arena ? "text-slate-400" : "text-cup-muted";
+  if (arena) {
+    if (w === "Win") return "text-cup-winBright";
+    if (w === "Loss") return "text-cup-lossBright";
+    return "text-cup-drawBright";
+  }
+  if (w === "Win") return "text-cup-win";
+  if (w === "Loss") return "text-cup-loss";
+  return "text-cup-draw";
+}
+
 function MatchCard({
   m,
   nameById,
   projector,
+  projectionMode,
 }: {
   m: QualifyingMatchData;
   nameById: Map<string, string>;
   projector?: boolean;
+  projectionMode?: boolean;
 }) {
+  const large = Boolean(projectionMode || projector);
+  const arena = Boolean(projectionMode);
+
   const teamA = nameById.get(m.teamAId) ?? m.teamAId;
   const teamB = nameById.get(m.teamBId) ?? m.teamBId;
   const isCompleted =
@@ -34,39 +51,28 @@ function MatchCard({
         : m.outcome === "DRAW"
           ? "Draw"
           : null;
-  const toneA =
-    resultA === "Win"
-      ? "text-cup-win"
-      : resultA === "Loss"
-        ? "text-cup-loss"
-        : resultA === "Draw"
-          ? "text-cup-draw"
-          : "text-cup-muted";
-  const toneB =
-    resultB === "Win"
-      ? "text-cup-win"
-      : resultB === "Loss"
-        ? "text-cup-loss"
-        : resultB === "Draw"
-          ? "text-cup-draw"
-          : "text-cup-muted";
+  const toneA = winTone(arena, resultA);
+  const toneB = winTone(arena, resultB);
+  const muted = arena ? "text-slate-400" : "text-cup-muted";
+  const ink = arena ? "text-slate-100" : "text-cup-ink";
+  const borderT = arena ? "border-cup-stageBorder" : "border-cup-line/70";
+
+  const liBase = arena
+    ? "rounded-xl border border-cup-stageBorder bg-cup-stageElevated/90 px-4 py-3 shadow-md shadow-black/15"
+    : large
+      ? "rounded-lg border border-cup-line bg-white px-4 py-3"
+      : "rounded-lg border border-cup-line bg-white px-3 py-2";
 
   return (
-    <li
-      className={
-        projector
-          ? "rounded-lg border border-cup-line bg-white px-4 py-3"
-          : "rounded-lg border border-cup-line bg-white px-3 py-2"
-      }
-    >
+    <li className={liBase}>
       <div>
-        <span className="font-medium">{teamA}</span>
-        <span className="text-cup-muted mx-1">vs</span>
-        <span className="font-medium">{teamB}</span>
+        <span className={`font-medium ${ink}`}>{teamA}</span>
+        <span className={`${muted} mx-1`}>vs</span>
+        <span className={`font-medium ${ink}`}>{teamB}</span>
       </div>
       <div
         className={
-          projector ? "text-sm text-cup-muted mt-1.5" : "text-xs text-cup-muted mt-1"
+          large ? `text-sm ${muted} mt-1.5` : `text-xs ${muted} mt-1`
         }
       >
         {m.schedule?.startAt != null ? (
@@ -81,12 +87,12 @@ function MatchCard({
       {isCompleted && totals ? (
         <div
           className={
-            projector
-              ? "mt-2 border-t border-cup-line/70 pt-2 text-sm"
-              : "mt-1.5 border-t border-cup-line/70 pt-1.5 text-xs"
+            large
+              ? `mt-2 border-t ${borderT} pt-2 text-sm`
+              : `mt-1.5 border-t ${borderT} pt-1.5 text-xs`
           }
         >
-          <div className="font-medium text-cup-ink">
+          <div className={`font-medium ${ink}`}>
             Final score: {totals.totalA}-{totals.totalB}
           </div>
           <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
@@ -111,6 +117,7 @@ export function QualifyingScheduleByRound({
   matchesB,
   nameById,
   projector,
+  projectionMode,
 }: {
   title: string;
   divisionLabelA: string;
@@ -119,7 +126,11 @@ export function QualifyingScheduleByRound({
   matchesB: QualifyingMatchData[];
   nameById: Map<string, string>;
   projector?: boolean;
+  projectionMode?: boolean;
 }) {
+  const large = Boolean(projectionMode || projector);
+  const arena = Boolean(projectionMode);
+
   const sortedA = useMemo(
     () => [...matchesA].sort(compareQualifyingByScheduleThenRound),
     [matchesA]
@@ -135,79 +146,83 @@ export function QualifyingScheduleByRound({
     return [...set].sort((a, b) => a - b);
   }, [sortedA, sortedB]);
 
+  const h3 = arena
+    ? "font-displayWide text-xl md:text-2xl font-semibold mb-2 text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide"
+    : large
+      ? "font-display text-xl md:text-2xl font-semibold mb-2"
+      : "font-display text-base font-semibold mb-2";
+
+  const emptyP = arena
+    ? "text-base text-slate-400"
+    : large
+      ? "text-base text-cup-muted"
+      : "text-sm text-cup-muted";
+
+  const roundHeading = arena
+    ? "text-sm font-semibold text-cup-signal tracking-wide"
+    : "text-sm font-semibold text-cup-muted";
+
+  const poolLabel = arena
+    ? "text-xs font-semibold text-slate-300 uppercase tracking-wide"
+    : "text-xs font-semibold text-cup-muted";
+
   if (rounds.length === 0) {
     return (
       <div>
-        <h3
-          className={
-            projector
-              ? "font-display text-xl md:text-2xl font-semibold mb-2"
-              : "font-display text-base font-semibold mb-2"
-          }
-        >
-          {title}
-        </h3>
-        <p className={projector ? "text-base text-cup-muted" : "text-sm text-cup-muted"}>
-          No matches.
-        </p>
+        <h3 className={h3}>{title}</h3>
+        <p className={emptyP}>No matches.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      <h3
-        className={
-          projector
-            ? "font-display text-xl md:text-2xl font-semibold mb-2"
-            : "font-display text-base font-semibold mb-2"
-        }
-      >
-        {title}
-      </h3>
+      <h3 className={h3}>{title}</h3>
       {rounds.map((round) => {
         const ra = sortedA.filter((m) => m.round === round);
         const rb = sortedB.filter((m) => m.round === round);
         return (
           <section key={`round-${round}`} className="space-y-2">
-            <h4 className="text-sm font-semibold text-cup-muted">Round {round}</h4>
+            <h4 className={roundHeading}>Round {round}</h4>
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-cup-muted">
-                  {divisionLabelA}
-                </div>
+                <div className={poolLabel}>{divisionLabelA}</div>
                 {ra.length > 0 ? (
-                  <ul className={projector ? "space-y-3 text-base" : "space-y-2 text-sm"}>
+                  <ul className={large ? "space-y-3 text-base" : "space-y-2 text-sm"}>
                     {ra.map((m) => (
                       <MatchCard
                         key={m.id}
                         m={m}
                         nameById={nameById}
                         projector={projector}
+                        projectionMode={projectionMode}
                       />
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-cup-muted">No match in this round.</p>
+                  <p className={arena ? "text-xs text-slate-500" : "text-xs text-cup-muted"}>
+                    No match in this round.
+                  </p>
                 )}
               </div>
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-cup-muted">
-                  {divisionLabelB}
-                </div>
+                <div className={poolLabel}>{divisionLabelB}</div>
                 {rb.length > 0 ? (
-                  <ul className={projector ? "space-y-3 text-base" : "space-y-2 text-sm"}>
+                  <ul className={large ? "space-y-3 text-base" : "space-y-2 text-sm"}>
                     {rb.map((m) => (
                       <MatchCard
                         key={m.id}
                         m={m}
                         nameById={nameById}
                         projector={projector}
+                        projectionMode={projectionMode}
                       />
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-xs text-cup-muted">No match in this round.</p>
+                  <p className={arena ? "text-xs text-slate-500" : "text-xs text-cup-muted"}>
+                    No match in this round.
+                  </p>
                 )}
               </div>
             </div>
