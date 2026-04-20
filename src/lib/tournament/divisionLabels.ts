@@ -10,5 +10,5 @@ export function divisionLabel(
     divisionId === "A" ? meta?.divisionLabelA : meta?.divisionLabelB;
   const t = raw?.trim();
   if (t) return t;
-  return `Division ${divisionId}`;
+  return `League ${divisionId}`;
 }
