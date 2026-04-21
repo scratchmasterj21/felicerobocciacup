@@ -323,6 +323,36 @@ export function BracketRounds({
               </div>
             </div>
           ) : null}
+          {splitChampionMode && leagueFinalA ? (
+            <div
+              className={
+                p
+                  ? "absolute z-20 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-signal pointer-events-none"
+                  : "absolute z-20 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-muted pointer-events-none"
+              }
+              style={{
+                left: `${xForMatch(leagueFinalA) + CARD_W / 2}px`,
+                top: `${ROUND_LABEL_TOP}px`,
+              }}
+            >
+              League A
+            </div>
+          ) : null}
+          {splitChampionMode && leagueFinalB ? (
+            <div
+              className={
+                p
+                  ? "absolute z-20 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-signal pointer-events-none"
+                  : "absolute z-20 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-muted pointer-events-none"
+              }
+              style={{
+                left: `${xForMatch(leagueFinalB) + CARD_W / 2}px`,
+                top: `${ROUND_LABEL_TOP}px`,
+              }}
+            >
+              League B
+            </div>
+          ) : null}
           {splitChampionMode && leagueFinalB ? (
             <div
               className="absolute z-20 -translate-x-1/2 text-center pointer-events-none"
