@@ -40,6 +40,7 @@ import {
 import type { Closer } from "@/lib/tournament/types";
 import {
   buildFinalBracketMatchTree,
+  buildSplitFinalBracketWithGradeChampionship,
   buildResurrectionBracketMatchTree,
 } from "@/lib/tournament/bracketMatches";
 
@@ -604,10 +605,7 @@ export async function generateFinalsForGrade(
       };
   const trees = Array.isArray(mergedSeeds)
     ? [buildFinalBracketMatchTree(gradeId, mergedSeeds, "U")]
-    : [
-        buildFinalBracketMatchTree(gradeId, mergedSeeds.A, "A"),
-        buildFinalBracketMatchTree(gradeId, mergedSeeds.B, "B"),
-      ];
+    : [buildSplitFinalBracketWithGradeChampionship(gradeId, mergedSeeds.A, mergedSeeds.B)];
   const allMatches = trees.flat();
   const updates: Record<string, unknown> = {
     [paths.finalsGradeMeta(tournamentId, gradeId)]: stripDeep({
@@ -773,8 +771,16 @@ export async function finalizeFinalMatchAndAdvance(
     return;
   }
   const parentPath = paths.finalsMatch(tournamentId, gradeId, match.nextMatchId);
-  const slot: "teamAId" | "teamBId" =
+  let slot: "teamAId" | "teamBId" =
     match.slotInRound % 2 === 0 ? "teamAId" : "teamBId";
+  try {
+    const parentSnap = await get(ref(getDb(), parentPath));
+    const parent = parentSnap.val() as FinalMatchData | null;
+    if (parent?.feedsFromA === match.id) slot = "teamAId";
+    else if (parent?.feedsFromB === match.id) slot = "teamBId";
+  } catch {
+    // Fallback to legacy parity rule if parent cannot be read.
+  }
   await update(ref(getDb()), {
     [paths.finalsMatch(tournamentId, gradeId, match.id)]: payload,
     [`${parentPath}/${slot}`]: match.winnerTeamId,

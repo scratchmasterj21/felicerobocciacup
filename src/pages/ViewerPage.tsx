@@ -251,19 +251,19 @@ export function ViewerPage() {
   );
 
   const finalMatchList = useMemo(() => Object.values(fMatches ?? {}), [fMatches]);
-  const finalsA = useMemo(
-    () =>
-      finalMatchList.filter(
-        (m) => m.bracketGroup === "A" || (!isUnified && m.bracketGroup == null)
-      ),
-    [finalMatchList, isUnified]
-  );
-  const finalsB = useMemo(
-    () => finalMatchList.filter((m) => m.bracketGroup === "B"),
-    [finalMatchList]
-  );
   const finalsUnified = useMemo(
     () => finalMatchList.filter((m) => m.bracketGroup === "U" || m.bracketGroup == null),
+    [finalMatchList]
+  );
+  const finalsSplitMerged = useMemo(
+    () =>
+      finalMatchList.filter(
+        (m) =>
+          m.bracketGroup === "A" ||
+          m.bracketGroup === "B" ||
+          m.bracketGroup === "U" ||
+          m.bracketGroup == null
+      ),
     [finalMatchList]
   );
 
@@ -574,6 +574,7 @@ export function ViewerPage() {
                 projectionMode={projectionMode}
                 emptyMessage="No resurrection bracket for this grade yet (or a single below-cut team was auto-crowned with no matches)."
                 winnerBannerTitle="Winner"
+                winnerBannerIcon="🪶"
                 footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
               />
             </div>
@@ -602,6 +603,7 @@ export function ViewerPage() {
                   projectionMode={projectionMode}
                   emptyMessage="No resurrection bracket for this pool yet."
                   winnerBannerTitle="Winner"
+                  winnerBannerIcon="🪶"
                   footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
                 />
               </div>
@@ -628,6 +630,7 @@ export function ViewerPage() {
                   projectionMode={projectionMode}
                   emptyMessage="No resurrection bracket for this pool yet."
                   winnerBannerTitle="Winner"
+                  winnerBannerIcon="🪶"
                   footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
                 />
               </div>
@@ -647,26 +650,20 @@ export function ViewerPage() {
             />
           </div>
         ) : (
-          <div className="grid lg:grid-cols-2 gap-6">
-            <div className="min-w-0">
-              <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "A")} finals</h3>
-              <div className="min-w-0 overflow-x-hidden">
-                <BracketRounds
-                  matches={finalsA}
-                  nameById={nameById}
-                  projectionMode={projectionMode}
-                />
-              </div>
-            </div>
-            <div className="min-w-0">
-              <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "B")} finals</h3>
-              <div className="min-w-0 overflow-x-hidden">
-                <BracketRounds
-                  matches={finalsB}
-                  nameById={nameById}
-                  projectionMode={projectionMode}
-                />
-              </div>
+          <div className="space-y-2">
+            <h3 className={h3Bracket}>
+              {grade} · {divisionLabel(meta, "A")} + {divisionLabel(meta, "B")} to grade champion
+            </h3>
+            <p className={bodyMutedNarrow}>
+              👑 League champions qualify for Roboccia Japan Cup. Grade champion perk: bring one
+              extra robot to Roboccia Japan Cup.
+            </p>
+            <div className="min-w-0 overflow-x-hidden">
+              <BracketRounds
+                matches={finalsSplitMerged}
+                nameById={nameById}
+                projectionMode={projectionMode}
+              />
             </div>
           </div>
         )}

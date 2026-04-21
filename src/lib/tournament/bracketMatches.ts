@@ -182,3 +182,45 @@ export function buildFinalBracketMatchTree(
 
   return matches;
 }
+
+/**
+ * Build split League A/B finals and connect both league champions
+ * into a single grade championship final.
+ */
+export function buildSplitFinalBracketWithGradeChampionship(
+  gradeId: string,
+  seedsA: string[],
+  seedsB: string[]
+): FinalMatchData[] {
+  const treeA = buildFinalBracketMatchTree(gradeId, seedsA, "A");
+  const treeB = buildFinalBracketMatchTree(gradeId, seedsB, "B");
+
+  const finalA = [...treeA].sort((x, y) => y.roundIndex - x.roundIndex)[0];
+  const finalB = [...treeB].sort((x, y) => y.roundIndex - x.roundIndex)[0];
+  if (!finalA || !finalB) return [...treeA, ...treeB];
+
+  const championshipRound = Math.max(finalA.roundIndex, finalB.roundIndex) + 1;
+  const championshipId = groupedMatchId(gradeId, championshipRound, 0, "U");
+
+  const linkedA = treeA.map((m) =>
+    m.id === finalA.id ? { ...m, nextMatchId: championshipId } : m
+  );
+  const linkedB = treeB.map((m) =>
+    m.id === finalB.id ? { ...m, nextMatchId: championshipId } : m
+  );
+
+  const championship: FinalMatchData = {
+    id: championshipId,
+    gradeId,
+    bracketGroup: "U",
+    roundIndex: championshipRound,
+    slotInRound: 0,
+    teamAId: finalA.winnerTeamId,
+    teamBId: finalB.winnerTeamId,
+    status: "SCHEDULED",
+    feedsFromA: finalA.id,
+    feedsFromB: finalB.id,
+  };
+
+  return [...linkedA, ...linkedB, championship];
+}

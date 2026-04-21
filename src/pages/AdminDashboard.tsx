@@ -2338,55 +2338,83 @@ export function AdminDashboard() {
                 ))
             )
           ) : (
-            <div className="grid lg:grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-cup-muted">
-                  {grade} · {divisionLabel(meta, "A")} finals
-                </h3>
-                {finalsViewMode === "quick" ? (
-                  <MatchScoreGrid
-                    title={`${grade} · ${divisionLabel(meta, "A")} finals quick scores`}
-                    rows={finalsRows(finalsA)}
-                    onSaveRow={onSaveFinalsQuick}
-                  />
-                ) : (
-                  finalsA
-                    .sort(compareFinalByRoundThenScheduleThenSlot)
-                    .map((m, idx) => (
-                      <FinalMatchEditor
-                        key={`A-${m.id}-${m.roundIndex}-${m.slotInRound}-${idx}`}
-                        m={m}
-                        tournamentId={tournamentId}
-                        grade={grade}
-                        nameById={nameById}
-                      />
-                    ))
-                )}
+            <div className="space-y-4">
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-cup-muted">
+                    {grade} · {divisionLabel(meta, "A")} finals
+                  </h3>
+                  {finalsViewMode === "quick" ? (
+                    <MatchScoreGrid
+                      title={`${grade} · ${divisionLabel(meta, "A")} finals quick scores`}
+                      rows={finalsRows(finalsA)}
+                      onSaveRow={onSaveFinalsQuick}
+                    />
+                  ) : (
+                    finalsA
+                      .sort(compareFinalByRoundThenScheduleThenSlot)
+                      .map((m, idx) => (
+                        <FinalMatchEditor
+                          key={`A-${m.id}-${m.roundIndex}-${m.slotInRound}-${idx}`}
+                          m={m}
+                          tournamentId={tournamentId}
+                          grade={grade}
+                          nameById={nameById}
+                        />
+                      ))
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-cup-muted">
+                    {grade} · {divisionLabel(meta, "B")} finals
+                  </h3>
+                  {finalsViewMode === "quick" ? (
+                    <MatchScoreGrid
+                      title={`${grade} · ${divisionLabel(meta, "B")} finals quick scores`}
+                      rows={finalsRows(finalsB)}
+                      onSaveRow={onSaveFinalsQuick}
+                    />
+                  ) : (
+                    finalsB
+                      .sort(compareFinalByRoundThenScheduleThenSlot)
+                      .map((m, idx) => (
+                        <FinalMatchEditor
+                          key={`B-${m.id}-${m.roundIndex}-${m.slotInRound}-${idx}`}
+                          m={m}
+                          tournamentId={tournamentId}
+                          grade={grade}
+                          nameById={nameById}
+                        />
+                      ))
+                  )}
+                </div>
               </div>
-              <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-cup-muted">
-                  {grade} · {divisionLabel(meta, "B")} finals
-                </h3>
-                {finalsViewMode === "quick" ? (
-                  <MatchScoreGrid
-                    title={`${grade} · ${divisionLabel(meta, "B")} finals quick scores`}
-                    rows={finalsRows(finalsB)}
-                    onSaveRow={onSaveFinalsQuick}
-                  />
-                ) : (
-                  finalsB
-                    .sort(compareFinalByRoundThenScheduleThenSlot)
-                    .map((m, idx) => (
-                      <FinalMatchEditor
-                        key={`B-${m.id}-${m.roundIndex}-${m.slotInRound}-${idx}`}
-                        m={m}
-                        tournamentId={tournamentId}
-                        grade={grade}
-                        nameById={nameById}
-                      />
-                    ))
-                )}
-              </div>
+              {finalsUnified.length > 0 ? (
+                <div className="space-y-3 border-t border-cup-line pt-4">
+                  <h3 className="text-sm font-semibold text-cup-muted">
+                    {grade} · Grade championship final
+                  </h3>
+                  {finalsViewMode === "quick" ? (
+                    <MatchScoreGrid
+                      title={`${grade} · Grade championship quick scores`}
+                      rows={finalsRows(finalsUnified)}
+                      onSaveRow={onSaveFinalsQuick}
+                    />
+                  ) : (
+                    finalsUnified
+                      .sort(compareFinalByRoundThenScheduleThenSlot)
+                      .map((m, idx) => (
+                        <FinalMatchEditor
+                          key={`GF-${m.id}-${m.roundIndex}-${m.slotInRound}-${idx}`}
+                          m={m}
+                          tournamentId={tournamentId}
+                          grade={grade}
+                          nameById={nameById}
+                        />
+                      ))
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
         </div>

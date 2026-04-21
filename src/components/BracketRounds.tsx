@@ -10,6 +10,7 @@ export function BracketRounds({
   nameById,
   emptyMessage = "No finals bracket for this grade yet.",
   winnerBannerTitle = "Champion",
+  winnerBannerIcon = "🏆",
   footerHint,
   projectionMode,
 }: {
@@ -19,6 +20,8 @@ export function BracketRounds({
   emptyMessage?: string;
   /** Small caps label above the winner name (e.g. "Winner" for resurrection). */
   winnerBannerTitle?: string;
+  /** Optional icon shown above the winner banner (e.g. 🪶 for resurrection). */
+  winnerBannerIcon?: string;
   /** Default footer when final match has no schedule (e.g. resurrection timing copy). */
   footerHint?: string;
   /** Dark arena styling for live projection (`?display=1`). */
@@ -35,7 +38,7 @@ export function BracketRounds({
     const ro = new ResizeObserver(() => update());
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [matches.length]);
 
   const rounds = useMemo(() => {
     const m = new Map<number, FinalMatchData[]>();
@@ -60,6 +63,21 @@ export function BracketRounds({
     }
     return m;
   }, [matches]);
+
+  const splitChampionMode = (() => {
+    const groups = new Set(matches.map((m) => m.bracketGroup ?? "U"));
+    // Split layout should activate whenever both League A and B exist,
+    // even if older/generated data does not yet include the grade-final "U" node.
+    return groups.has("A") && groups.has("B");
+  })();
+  const maxRoundByGroup = (() => {
+    const out = new Map<string, number>();
+    for (const m of matches) {
+      const g = m.bracketGroup ?? "U";
+      out.set(g, Math.max(out.get(g) ?? 0, m.roundIndex));
+    }
+    return out;
+  })();
 
   if (matches.length === 0) {
     return (
@@ -91,33 +109,76 @@ export function BracketRounds({
   const HEADER_H = 138;
   const ROUND_LABEL_TOP = 112;
   const INNER_H = Math.max(1, firstRoundCount) * CARD_H + Math.max(0, firstRoundCount - 1) * ROW_GAP;
-  const canvasW = PAD_X * 2 + roundCount * CARD_W + Math.max(0, roundCount - 1) * ROUND_GAP;
+  const roundsA = (maxRoundByGroup.get("A") ?? 0) + 1;
+  const roundsB = (maxRoundByGroup.get("B") ?? 0) + 1;
+  const maxRoundA = Math.max(0, roundsA - 1);
+  const maxRoundB = Math.max(0, roundsB - 1);
+  const treeW = (r: number) => Math.max(1, r) * CARD_W + Math.max(0, r - 1) * ROUND_GAP;
+  const treeWA = treeW(roundsA);
+  const treeWB = treeW(roundsB);
+  const baseXA = PAD_X;
+  const championX = baseXA + treeWA + ROUND_GAP / 2;
+  const baseXB = championX + CARD_W + ROUND_GAP / 2;
+  const fallbackCanvasW = splitChampionMode
+    ? baseXB + treeWB + PAD_X
+    : PAD_X * 2 + roundCount * CARD_W + Math.max(0, roundCount - 1) * ROUND_GAP;
 
   const laneHeight = CARD_H + ROW_GAP;
   const centerY = (roundIndex: number, slotInRound: number) => {
     const step = laneHeight * Math.pow(2, roundIndex);
     return HEADER_H + PAD_Y + step / 2 + slotInRound * step;
   };
+  const championCenterY = HEADER_H + 28;
+  const centerYForMatch = (m: FinalMatchData) => {
+    if (splitChampionMode && (m.bracketGroup ?? "U") === "U") return championCenterY;
+    return centerY(m.roundIndex, m.slotInRound);
+  };
   /** Room for wrapped schedule/hint copy (narrow canvas → many lines). */
   const FOOTER_BAND_H = 80;
   const FOOTER_BOTTOM_INSET = 8;
   const maxCardBottom = Math.max(
-    ...matches.map((m) => centerY(m.roundIndex, m.slotInRound) + CARD_H / 2)
+    ...matches.map((m) => centerYForMatch(m) + CARD_H / 2)
   );
   const minHFromCards = maxCardBottom + 12 + FOOTER_BAND_H + FOOTER_BOTTOM_INSET;
   const heuristicH = HEADER_H + PAD_Y + INNER_H + PAD_Y;
   const canvasH = Math.max(heuristicH, minHFromCards);
 
+  const leftX = (roundIndex: number) => PAD_X + roundIndex * (CARD_W + ROUND_GAP);
+  const rawXForMatch = (m: FinalMatchData) => {
+    if (!splitChampionMode) return leftX(m.roundIndex);
+    const g = m.bracketGroup ?? "U";
+    if (g === "A") return baseXA + m.roundIndex * (CARD_W + ROUND_GAP);
+    // Mirror League B so its bracket faces inward toward the championship match.
+    if (g === "B") return baseXB + (maxRoundB - m.roundIndex) * (CARD_W + ROUND_GAP);
+    return championX;
+  };
+  // Right/left safety space for mirrored split brackets (A/B + grade final).
+  // Keep moderate padding so layout stays larger while avoiding edge clipping.
+  const CANVAS_EDGE_PAD = Math.floor(CARD_W * 0.6);
+  const rawMinX = Math.min(...matches.map((m) => rawXForMatch(m)));
+  const rawMaxX = Math.max(...matches.map((m) => rawXForMatch(m) + CARD_W));
+  const rawContentW = Math.max(1, rawMaxX - rawMinX);
+  const canvasW = Math.max(
+    fallbackCanvasW,
+    rawContentW + PAD_X * 2
+  ) + CANVAS_EDGE_PAD;
+  const xOffset = canvasW / 2 - (rawMinX + rawMaxX) / 2;
+  const xForMatch = (m: FinalMatchData) => rawXForMatch(m) + xOffset;
   /** Content width inside `p-3` padding (12px × 2). */
   const innerAvailable = Math.max(0, containerWidth - 24);
-  /** Slight slack avoids subpixel overflow; never below 1px numerator when measured. */
-  const fitW = Math.max(1, innerAvailable - 4);
+  /** Keep some slack for borders/shadows without shrinking too aggressively. */
+  const fitW = Math.max(1, innerAvailable - 48);
   const scale = innerAvailable > 0 ? Math.min(1, fitW / canvasW) : 1;
   const scaledH = Math.max(200, canvasH * scale);
-
-  const leftX = (roundIndex: number) => PAD_X + roundIndex * (CARD_W + ROUND_GAP);
   const matchByRoundAndSlot = (roundIndex: number, slotInRound: number) =>
     byRoundAndSlot.get(`${roundIndex}:${slotInRound}`);
+
+  const leagueFinalA = splitChampionMode
+    ? matches.find((m) => (m.bracketGroup ?? "U") === "A" && m.roundIndex === maxRoundA)
+    : undefined;
+  const leagueFinalB = splitChampionMode
+    ? matches.find((m) => (m.bracketGroup ?? "U") === "B" && m.roundIndex === maxRoundB)
+    : undefined;
 
   const lastRoundMatches = rounds[roundCount - 1]?.[1] ?? [];
   const finalMatch = lastRoundMatches[0];
@@ -152,7 +213,7 @@ export function BracketRounds({
         >
           <div className="absolute inset-x-0 top-3 z-20 flex flex-col items-center gap-1 pointer-events-none">
             <div className="text-3xl leading-none" aria-hidden>
-              🏆
+              {winnerBannerIcon}
             </div>
             <div
               className={
@@ -187,18 +248,22 @@ export function BracketRounds({
               ms.flatMap((m, idx) => {
                 const nextRound = roundIndex + 1;
                 if (nextRound >= roundCount) return [];
-                const sourceX = leftX(roundIndex) + CARD_W;
-                const sourceY = centerY(roundIndex, m.slotInRound);
+                const sourceY = centerYForMatch(m);
                 const targetSlot = Math.floor(m.slotInRound / 2);
                 const next =
                   m.nextMatchId
                     ? byId.get(m.nextMatchId)
                     : matchByRoundAndSlot(nextRound, targetSlot);
                 if (!next) return [];
-                const targetX = leftX(nextRound);
-                const targetXConnect = targetX - CONNECT_INSET;
-                const targetY = centerY(next.roundIndex, next.slotInRound);
-                const midX = sourceX + ROUND_GAP / 2;
+                const sourceCardX = xForMatch(m);
+                const targetCardX = xForMatch(next);
+                const targetY = centerYForMatch(next);
+                const sourceFromRight = targetCardX >= sourceCardX;
+                const sourceX = sourceFromRight ? sourceCardX + CARD_W : sourceCardX;
+                const targetXConnect = sourceFromRight
+                  ? targetCardX - CONNECT_INSET
+                  : targetCardX + CARD_W + CONNECT_INSET;
+                const midX = sourceX + (targetXConnect - sourceX) / 2;
                 const path = `M ${sourceX} ${sourceY} L ${midX} ${sourceY} L ${midX} ${targetY} L ${targetXConnect} ${targetY}`;
                 const pathLen =
                   Math.abs(midX - sourceX) +
@@ -232,24 +297,75 @@ export function BracketRounds({
             )}
           </svg>
 
-          {rounds.map(([roundIndex, ms]) => (
-            <div key={roundIndex}>
+          {splitChampionMode && leagueFinalA ? (
+            <div
+              className={
+                p
+                  ? "absolute z-20 -translate-x-1/2 text-center pointer-events-none"
+                  : "absolute z-20 -translate-x-1/2 text-center pointer-events-none"
+              }
+              style={{
+                left: `${xForMatch(leagueFinalA) + CARD_W / 2}px`,
+                top: `${Math.max(ROUND_LABEL_TOP + 10, centerYForMatch(leagueFinalA) - CARD_H / 2 - 32)}px`,
+              }}
+            >
+              <div className="text-lg leading-none" aria-hidden>
+                👑
+              </div>
               <div
                 className={
                   p
-                    ? "absolute z-10 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-signal pointer-events-none"
-                    : "absolute z-10 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-muted pointer-events-none"
+                    ? "text-[10px] uppercase tracking-wide text-cup-signalMuted"
+                    : "text-[10px] uppercase tracking-wide text-[#8a6b00]"
                 }
-                style={{
-                  left: `${leftX(roundIndex) + CARD_W / 2}px`,
-                  top: `${ROUND_LABEL_TOP}px`,
-                }}
               >
-                Round {roundIndex + 1}
+                Japan Cup
               </div>
+            </div>
+          ) : null}
+          {splitChampionMode && leagueFinalB ? (
+            <div
+              className="absolute z-20 -translate-x-1/2 text-center pointer-events-none"
+              style={{
+                left: `${xForMatch(leagueFinalB) + CARD_W / 2}px`,
+                top: `${Math.max(ROUND_LABEL_TOP + 10, centerYForMatch(leagueFinalB) - CARD_H / 2 - 32)}px`,
+              }}
+            >
+              <div className="text-lg leading-none" aria-hidden>
+                👑
+              </div>
+              <div
+                className={
+                  p
+                    ? "text-[10px] uppercase tracking-wide text-cup-signalMuted"
+                    : "text-[10px] uppercase tracking-wide text-[#8a6b00]"
+                }
+              >
+                Japan Cup
+              </div>
+            </div>
+          ) : null}
+
+          {rounds.map(([roundIndex, ms]) => (
+            <div key={roundIndex}>
+              {!splitChampionMode ? (
+                <div
+                  className={
+                    p
+                      ? "absolute z-10 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-signal pointer-events-none"
+                      : "absolute z-10 -translate-x-1/2 text-[11px] uppercase tracking-[0.14em] font-semibold text-cup-muted pointer-events-none"
+                  }
+                  style={{
+                    left: `${leftX(roundIndex) + CARD_W / 2}px`,
+                    top: `${ROUND_LABEL_TOP}px`,
+                  }}
+                >
+                  Round {roundIndex + 1}
+                </div>
+              ) : null}
               {ms.map((m, idx) => {
-                const x = leftX(roundIndex);
-                const y = centerY(roundIndex, m.slotInRound) - CARD_H / 2;
+                const x = xForMatch(m);
+                const y = centerYForMatch(m) - CARD_H / 2;
                 const aWinner = m.winnerTeamId && m.winnerTeamId === m.teamAId;
                 const bWinner = m.winnerTeamId && m.winnerTeamId === m.teamBId;
                 const display = getBracketMatchDisplay(m);
