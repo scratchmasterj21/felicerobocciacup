@@ -62,7 +62,7 @@ function formatFinalMatchLine(
     if (m.winnerTeamId === teamId) wl = " (W)";
     else if (m.teamAId === teamId || m.teamBId === teamId) wl = " (L)";
   }
-  return `${m.id} vs ${oppLabel} · ${score}${wl}`;
+  return `vs ${oppLabel} · ${score}${wl}`;
 }
 
 export function TeamViewerPage() {
@@ -295,72 +295,102 @@ export function TeamViewerPage() {
     );
   }, [team, teamId, isUnified, resMatchesU, resMatchesA, resMatchesB]);
 
+  const shell = "projection-shell rounded-2xl px-2 py-4 md:px-4 md:py-5 min-w-0";
+  const panel =
+    "rounded-xl border border-cup-stageBorder bg-cup-stageElevated/85 p-4 md:p-5 shadow-lg shadow-black/25";
+  const sectionTitle =
+    "font-displayWide text-lg md:text-xl font-semibold text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide mb-4";
+  const linkPrimary =
+    "inline-flex items-center justify-center rounded-lg border border-cup-signal/50 bg-cup-signal/15 px-4 py-2.5 text-sm font-semibold text-cup-signal shadow-sm transition hover:bg-cup-signal/25 hover:border-cup-signal";
+
   if (!tournamentId || !teamId) {
     return (
-      <div className="space-y-4">
-        <p className="text-sm text-cup-muted">Invalid team link.</p>
-        <Link to="/" className="text-cup-accent font-medium underline">
-          Back to live view
-        </Link>
+      <div className={`${shell} space-y-4`}>
+        <div className={panel}>
+          <p className="text-sm text-slate-300">Invalid team link.</p>
+          <Link to="/" className={`${linkPrimary} mt-4`}>
+            Back to live view
+          </Link>
+        </div>
       </div>
     );
   }
 
   if (teams !== null && teams[teamId] === undefined) {
     return (
-      <div className="space-y-4">
-        <p className="text-sm text-cup-muted">
-          No team <span className="font-mono">{teamId}</span> in this tournament.
-        </p>
-        <Link
-          to={`/?tournamentId=${encodeURIComponent(tournamentId)}`}
-          className="text-cup-accent font-medium underline"
-        >
-          Open live view
-        </Link>
+      <div className={`${shell} space-y-4`}>
+        <div className={panel}>
+          <p className="text-sm text-slate-300">
+            No team <span className="font-mono text-cup-signalMuted">{teamId}</span> in this
+            tournament.
+          </p>
+          <Link
+            to={`/?tournamentId=${encodeURIComponent(tournamentId)}`}
+            className={`${linkPrimary} mt-4`}
+          >
+            Open live view
+          </Link>
+        </div>
       </div>
     );
   }
 
   if (!team) {
     return (
-      <p className="text-sm text-cup-muted py-8">Loading team…</p>
+      <div className={`${shell} ${panel}`}>
+        <p className="text-sm text-slate-400 py-2 text-center">Loading team…</p>
+      </div>
     );
   }
 
   const displayName = nameById.get(teamId) ?? team.name;
   const poolTitle = `${team.gradeId} · ${divisionLabel(meta, team.divisionId)}`;
+  const liveHref = `/?tournamentId=${encodeURIComponent(tournamentId)}&grade=${encodeURIComponent(team.gradeId)}`;
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-wrap justify-between gap-4 items-start">
-        <div>
-          <h1 className="font-display text-2xl font-semibold">{displayName}</h1>
-          <p className="text-sm text-cup-muted mt-1">
-            {meta?.name ?? "Tournament"} ({meta?.schoolYear ?? "—"}) · {poolTitle}
-            {team.code ? <span> · Code: {team.code}</span> : null}
-          </p>
-          <p className="font-mono text-xs text-cup-muted mt-1">Team id: {teamId}</p>
+    <div className={`${shell} space-y-8`}>
+      <header className="border-b border-cup-stageBorder pb-6">
+        <div className="flex flex-wrap justify-between gap-4 items-start">
+          <div className="min-w-0 space-y-2">
+            <p className="text-xs uppercase tracking-[0.2em] text-cup-signalMuted font-semibold">
+              Team view
+            </p>
+            <h1 className="font-display text-3xl md:text-4xl font-semibold text-slate-50 tracking-tight">
+              {displayName}
+            </h1>
+            <p className="font-displayWide text-cup-signal text-lg md:text-xl font-semibold tracking-wide">
+              {poolTitle}
+            </p>
+            <p className="text-sm text-slate-400 max-w-xl">
+              <span className="text-slate-300">{meta?.name ?? "Tournament"}</span>
+              {meta && Number.isFinite(Number(meta.schoolYear)) ? (
+                <span className="tabular-nums"> · {meta.schoolYear}</span>
+              ) : (
+                <span> · —</span>
+              )}
+              {team.code ? <span className="text-cup-signalMuted"> · Code {team.code}</span> : null}
+            </p>
+            <p className="font-mono text-xs text-slate-500">
+              Team id <span className="text-cup-signalMuted">{teamId}</span>
+            </p>
+          </div>
+          <Link to={liveHref} className={`${linkPrimary} shrink-0`}>
+            Open live view
+          </Link>
         </div>
-        <Link
-          to={`/?tournamentId=${encodeURIComponent(tournamentId)}`}
-          className="px-4 py-2 rounded-lg border border-cup-line text-sm font-medium bg-white hover:bg-cup-paper/80"
-        >
-          Open full live view
-        </Link>
-      </div>
+      </header>
 
-      <section className="space-y-3">
-        <h2 className="font-display text-lg font-semibold">Your qualifying matches</h2>
+      <section className={panel}>
         <QualifyingScheduleList
-          title={`${poolTitle}`}
+          title={`${poolTitle} · Your preliminary matches`}
           matches={qualifyingForTeam}
           nameById={nameById}
+          projectionMode
         />
       </section>
 
-      <section className="space-y-3">
-        <h2 className="font-display text-lg font-semibold">Pool standings</h2>
+      <section className={panel}>
+        <h2 className={sectionTitle}>Pool standings</h2>
         {effLeagueCount === 2 && teamLeague ? (
           <div className="space-y-4">
             {teamLeague === "L1" ? (
@@ -368,12 +398,14 @@ export function TeamViewerPage() {
                 standings={standL1}
                 nameById={nameById}
                 highlightTeamId={teamId}
+                projectionMode
               />
             ) : (
               <StandingsTable
                 standings={standL2}
                 nameById={nameById}
                 highlightTeamId={teamId}
+                projectionMode
               />
             )}
           </div>
@@ -382,6 +414,7 @@ export function TeamViewerPage() {
             standings={standSingle}
             nameById={nameById}
             highlightTeamId={teamId}
+            projectionMode
           />
         )}
       </section>
@@ -394,32 +427,39 @@ export function TeamViewerPage() {
         (!isUnified &&
           team.divisionId === "B" &&
           resMetaB?.entrantTeamIds?.includes(teamId))) ? (
-        <section className="space-y-3">
-          <h2 className="font-display text-lg font-semibold">Resurrection (your matches)</h2>
+        <section className={panel}>
+          <h2 className={sectionTitle}>Redemption</h2>
           {resForTeam.length > 0 ? (
-            <ul className="text-sm space-y-2 border border-cup-line rounded-lg p-4 bg-white">
+            <ul className="space-y-2">
               {resForTeam.map((m) => (
-                <li key={m.id} className="font-mono text-xs text-cup-muted">
-                  {formatFinalMatchLine(m, teamId, nameById)}
+                <li
+                  key={m.id}
+                  className="rounded-lg border border-cup-stageBorder bg-black/25 px-4 py-3 text-sm text-slate-200 shadow-sm"
+                >
+                  <span className="font-mono text-xs text-cup-signalMuted block mb-1">{m.id}</span>
+                  <span className="leading-snug">{formatFinalMatchLine(m, teamId, nameById)}</span>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-cup-muted">
-              You are in the resurrection pool; bracket or results will appear here once
-              generated.
+            <p className="text-sm text-slate-400 leading-relaxed border border-dashed border-cup-stageBorder rounded-lg px-4 py-3 bg-black/15">
+              You are in the redemption pool; bracket or results will appear here once generated.
             </p>
           )}
         </section>
       ) : null}
 
       {finalsForTeam.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="font-display text-lg font-semibold">Finals (your matches)</h2>
-          <ul className="text-sm space-y-2 border border-cup-line rounded-lg p-4 bg-white">
+        <section className={panel}>
+          <h2 className={sectionTitle}>Finals</h2>
+          <ul className="space-y-2">
             {finalsForTeam.map((m) => (
-              <li key={m.id} className="font-mono text-xs text-cup-muted">
-                {formatFinalMatchLine(m, teamId, nameById)}
+              <li
+                key={m.id}
+                className="rounded-lg border border-cup-stageBorder bg-black/25 px-4 py-3 text-sm text-slate-200 shadow-sm"
+              >
+                <span className="font-mono text-xs text-cup-signalMuted block mb-1">{m.id}</span>
+                <span className="leading-snug">{formatFinalMatchLine(m, teamId, nameById)}</span>
               </li>
             ))}
           </ul>

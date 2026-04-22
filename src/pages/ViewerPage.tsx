@@ -402,7 +402,7 @@ export function ViewerPage() {
           </h1>
           {meta.tournamentKind === "interSchool" ? (
             <p className={interSchoolBanner}>
-              Inter-school event — unified qualifying league and school-vs-school fixtures when
+              Inter-school event — unified preliminary league and school-vs-school fixtures when
               two schools are registered.
             </p>
           ) : null}
@@ -411,7 +411,7 @@ export function ViewerPage() {
 
       {isUnified ? (
         <p className={bodyMutedNarrow}>
-          Unified qualifying: one league in Pool A; Pool B is not used for this tournament.
+          Unified preliminary: one league in Pool A; Pool B is not used for this tournament.
         </p>
       ) : null}
 
@@ -422,7 +422,7 @@ export function ViewerPage() {
       >
         <div>
           <h2 className={h2Section}>
-            Qualifying — {grade} · {divisionLabel(meta, "A")}
+            Preliminary — {grade} · {divisionLabel(meta, "A")}
           </h2>
           {effLeagueCountA === 2 ? (
             <div className="space-y-4">
@@ -450,7 +450,7 @@ export function ViewerPage() {
         {!isUnified ? (
           <div>
             <h2 className={h2Section}>
-              Qualifying — {grade} · {divisionLabel(meta, "B")}
+              Preliminary — {grade} · {divisionLabel(meta, "B")}
             </h2>
             {effLeagueCountB === 2 ? (
               <div className="space-y-4">
@@ -546,7 +546,7 @@ export function ViewerPage() {
       </section>
 
       <section className="space-y-6">
-        <h2 className={h2Major}>Resurrection bracket — {grade}</h2>
+        <h2 className={h2Major}>Redemption bracket — {grade}</h2>
         <p className={bodyMuted}>
           Knockout for teams below the direct-qualifier cut (3 min regulation, extra period if
           tied, then sudden death). The winner may be added to the main finals when admins generate
@@ -562,7 +562,7 @@ export function ViewerPage() {
                     : "text-sm font-medium text-cup-win"
                 }
               >
-                Resurrection winner:{" "}
+                Redemption winner:{" "}
                 {nameById.get(resMetaU.completedWinnerTeamId) ??
                   resMetaU.completedWinnerTeamId}
               </p>
@@ -572,7 +572,7 @@ export function ViewerPage() {
                 matches={resListU}
                 nameById={nameById}
                 projectionMode={projectionMode}
-                emptyMessage="No resurrection bracket for this grade yet (or a single below-cut team was auto-crowned with no matches)."
+                emptyMessage="No redemption bracket for this grade yet (or a single below-cut team was auto-crowned with no matches)."
                 winnerBannerTitle="Winner"
                 winnerBannerIcon="🪶"
                 footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
@@ -582,7 +582,7 @@ export function ViewerPage() {
         ) : (
           <div className="grid lg:grid-cols-2 gap-6">
             <div className="min-w-0">
-              <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "A")} resurrection</h3>
+              <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "A")} redemption</h3>
               {resMetaA?.completedWinnerTeamId ? (
                 <p
                   className={
@@ -601,7 +601,7 @@ export function ViewerPage() {
                   matches={resListA}
                   nameById={nameById}
                   projectionMode={projectionMode}
-                  emptyMessage="No resurrection bracket for this pool yet."
+                  emptyMessage="No redemption bracket for this pool yet."
                   winnerBannerTitle="Winner"
                   winnerBannerIcon="🪶"
                   footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"
@@ -609,7 +609,7 @@ export function ViewerPage() {
               </div>
             </div>
             <div className="min-w-0">
-              <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "B")} resurrection</h3>
+              <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "B")} redemption</h3>
               {resMetaB?.completedWinnerTeamId ? (
                 <p
                   className={
@@ -628,7 +628,7 @@ export function ViewerPage() {
                   matches={resListB}
                   nameById={nameById}
                   projectionMode={projectionMode}
-                  emptyMessage="No resurrection bracket for this pool yet."
+                  emptyMessage="No redemption bracket for this pool yet."
                   winnerBannerTitle="Winner"
                   winnerBannerIcon="🪶"
                   footerHint="3 min regulation + one extra period if tied (+ sudden death if needed)"

@@ -713,7 +713,7 @@ export function AdminDashboard() {
   async function onDeleteTournamentMeta() {
     if (
       !window.confirm(
-        "Delete tournament meta only? The tournament node name, year, and settings will be removed. Teams, qualifying matches, and finals data under this tournament ID will NOT be deleted."
+        "Delete tournament meta only? The tournament node name, year, and settings will be removed. Teams, preliminary matches, and finals data under this tournament ID will NOT be deleted."
       )
     ) {
       return;
@@ -770,7 +770,7 @@ export function AdminDashboard() {
   async function onDeleteTeam(teamId: string, teamName: string) {
     if (
       !window.confirm(
-        `Delete team "${teamName}"? This cannot be undone. Qualifying results involving this team will become inconsistent unless you clear that division’s round-robin.`
+        `Delete team "${teamName}"? This cannot be undone. Preliminary results involving this team will become inconsistent unless you clear that division’s round-robin.`
       )
     ) {
       return;
@@ -792,7 +792,7 @@ export function AdminDashboard() {
   async function onClearRoundRobin(divisionId: "A" | "B") {
     const ids = matchesForDiv(divisionId).map((m) => m.id);
     if (ids.length === 0) {
-      window.alert(`No ${grade}${divisionId} qualifying matches to delete.`);
+      window.alert(`No ${grade}${divisionId} preliminary matches to delete.`);
       return;
     }
     if (
@@ -888,7 +888,7 @@ export function AdminDashboard() {
     if (matchesForDiv(divisionId).length > 0) {
       if (
         !window.confirm(
-          "This pool already has qualifying matches. A new L1/L2 split will not change existing match nodes—clear matches and regenerate the round-robin for consistency. Save the new random split anyway?"
+          "This pool already has preliminary matches. A new L1/L2 split will not change existing match nodes—clear matches and regenerate the round-robin for consistency. Save the new random split anyway?"
         )
       ) {
         return;
@@ -940,7 +940,7 @@ export function AdminDashboard() {
           !resMetaU?.completedWinnerTeamId
         ) {
           window.alert(
-            "Unified resurrection is not finished (no winner yet). Complete it or turn off “Append resurrection champion to finals”."
+            "Unified redemption is not finished (no winner yet). Complete it or turn off “Append redemption champion to finals”."
           );
           return;
         }
@@ -950,7 +950,7 @@ export function AdminDashboard() {
           !resMetaA?.completedWinnerTeamId
         ) {
           window.alert(
-            "Division A resurrection is not finished. Complete it or turn off append resurrection."
+            "Division A redemption is not finished. Complete it or turn off append redemption."
           );
           return;
         }
@@ -959,7 +959,7 @@ export function AdminDashboard() {
           !resMetaB?.completedWinnerTeamId
         ) {
           window.alert(
-            "Division B resurrection is not finished. Complete it or turn off append resurrection."
+            "Division B redemption is not finished. Complete it or turn off append redemption."
           );
           return;
         }
@@ -1031,14 +1031,14 @@ export function AdminDashboard() {
     if (
       finalsAll.length > 0 &&
       !window.confirm(
-        "Main finals for this grade already exist. Overwriting resurrection can confuse the live view until you regenerate finals. Continue?"
+        "Main finals for this grade already exist. Overwriting redemption can confuse the live view until you regenerate finals. Continue?"
       )
     ) {
       return;
     }
     if (
       !window.confirm(
-        `Generate resurrection knockout for ${entrants.length} team(s)? Existing data for this pool will be replaced.`
+        `Generate redemption knockout for ${entrants.length} team(s)? Existing data for this pool will be replaced.`
       )
     ) {
       return;
@@ -1047,7 +1047,7 @@ export function AdminDashboard() {
   }
 
   async function onClearResurrectionPool(group: ResurrectionPoolGroup) {
-    if (!window.confirm("Delete resurrection bracket and meta for this pool?")) {
+    if (!window.confirm("Delete redemption bracket and meta for this pool?")) {
       return;
     }
     await deleteResurrectionGroup(tournamentId, grade, group);
@@ -1246,13 +1246,13 @@ export function AdminDashboard() {
               <div className="border-t border-cup-line pt-4 text-sm text-cup-muted max-w-xl space-y-1">
                 <p>
                   <strong className="text-cup-ink">School vs other school</strong> uses a{" "}
-                  <strong>unified</strong> qualifying league (Pool A only) and rank-based
-                  finals seeds. Plan roughly <strong>1 hour qualifying + 1 hour finals</strong>;
+                  <strong>unified</strong> preliminary league (Pool A only) and rank-based
+                  finals seeds. Plan roughly <strong>1 hour preliminary + 1 hour finals</strong>;
                   register two schools, assign every team, then generate cross-school fixtures
                   when possible.
                 </p>
                 <p className="text-xs">
-                  Qualifying layout is fixed for this kind. To switch, delete tournament meta or
+                  Preliminary layout is fixed for this kind. To switch, delete tournament meta or
                   use another tournament ID.
                 </p>
               </div>
@@ -1268,7 +1268,7 @@ export function AdminDashboard() {
                 finals (best-first seeding).
               </p>
               <label className="flex flex-col gap-1 text-sm">
-                <span>Qualifying layout</span>
+                <span>Preliminary layout</span>
                 <select
                   className="border border-cup-line rounded-md px-3 py-2 bg-white"
                   value={metaQualifyingMode}
@@ -1286,7 +1286,7 @@ export function AdminDashboard() {
                 type="submit"
                 className="px-4 py-2 rounded-lg bg-cup-ink text-cup-paper text-sm font-medium"
               >
-                Save qualifying layout
+                Save preliminary layout
               </button>
             </form>
             )}
@@ -1295,7 +1295,7 @@ export function AdminDashboard() {
               className="flex flex-wrap gap-3 items-end border-t border-cup-line pt-4"
             >
               <p className="text-xs text-cup-muted w-full">
-                Optional labels for qualifying pools A and B (e.g. two schools). These
+                Optional labels for preliminary pools A and B (e.g. two schools). These
                 replace &quot;Division A/B&quot; in the UI.
                 {isUnified ? (
                   <span className="block mt-1">
@@ -1362,7 +1362,7 @@ export function AdminDashboard() {
                   onChange={() => setNewTournamentKind("intraSchool")}
                 />
                 <span>
-                  <strong>Within-school</strong> — normal two-pool or unified qualifying; use
+                  <strong>Within-school</strong> — normal two-pool or unified preliminary; use
                   for events at one school.
                 </span>
               </label>
@@ -1377,7 +1377,7 @@ export function AdminDashboard() {
                 <span>
                   <strong>School vs other school</strong> — special flow: unified league (Pool
                   A), cross-school fixtures when teams have two schools assigned, rank-based
-                  finals. Budget time (e.g. ~1h qualifying + ~1h finals).
+                  finals. Budget time (e.g. ~1h preliminary + ~1h finals).
                 </span>
               </label>
             </fieldset>
@@ -1493,7 +1493,7 @@ export function AdminDashboard() {
           </label>
         </div>
         <p className="text-xs text-cup-muted">
-          Teams are listed per division for the working grade above (same grade as Qualifying / Finals below).
+          Teams are listed per division for the working grade above (same grade as Preliminary / Finals below).
         </p>
         {isUnified ? (
           <p className="text-sm text-cup-ink bg-cup-paper/80 border border-cup-line rounded-lg px-3 py-2">
@@ -1735,7 +1735,7 @@ export function AdminDashboard() {
 
       <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
         <div className="flex flex-wrap gap-4 items-end justify-between">
-          <h2 className="font-display text-lg font-semibold">Qualifying</h2>
+          <h2 className="font-display text-lg font-semibold">Preliminary</h2>
           <div className="flex flex-wrap items-end gap-3">
             <p className="text-sm text-cup-muted">
               Grade: <strong>{grade}</strong> (change under Teams above)
@@ -2028,7 +2028,7 @@ export function AdminDashboard() {
 
       <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="font-display text-lg font-semibold">Resurrection</h2>
+          <h2 className="font-display text-lg font-semibold">Redemption</h2>
           <div className="flex items-end gap-3">
             <label className="text-xs text-cup-muted">
               View
@@ -2091,7 +2091,7 @@ export function AdminDashboard() {
                 onClick={() => void onClearResurrectionPool("U")}
                 className="px-3 py-2 rounded-lg border border-red-300 text-red-800 text-sm font-medium bg-white"
               >
-                Clear resurrection
+                Clear redemption
               </button>
             </div>
             {resViewMode === "quick" ? (
@@ -2283,8 +2283,8 @@ export function AdminDashboard() {
             onChange={(e) => setAppendResurrectionToFinals(e.target.checked)}
           />
           <span>
-            Append resurrection champion(s) to main finals seeds when generating (K+1 per pool
-            where a champion exists). Requires finished resurrection for any pool that still has
+            Append redemption champion(s) to main finals seeds when generating (K+1 per pool
+            where a champion exists). Requires finished redemption for any pool that still has
             below-cut teams.
           </span>
         </label>
@@ -2554,7 +2554,7 @@ function MatchScheduleForm({
       <div className="text-cup-muted font-medium">Schedule (Japan time)</div>
       {resurrectionHint ? (
         <p className="text-cup-muted">
-          Resurrection: <strong>3 min</strong> regulation (one score pair);{" "}
+          Redemption: <strong>3 min</strong> regulation (one score pair);{" "}
           <strong>one extra round</strong> if tied; sudden death after that.
         </p>
       ) : finalsHint ? (

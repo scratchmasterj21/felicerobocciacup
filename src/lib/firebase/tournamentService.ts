@@ -75,9 +75,9 @@ export interface TournamentMeta {
    * Immutable after create (change via new tournament ID or delete meta).
    */
   tournamentKind?: TournamentKind;
-  /** Optional UI label for qualifying pool A (e.g. host school name). */
+  /** Optional UI label for preliminary pool A (e.g. host school name). */
   divisionLabelA?: string;
-  /** Optional UI label for qualifying pool B (e.g. partner school name). */
+  /** Optional UI label for preliminary pool B (e.g. partner school name). */
   divisionLabelB?: string;
   /**
    * `twoPools` (default): divisions A and B each have their own RR, then alternate seeds.
@@ -233,7 +233,7 @@ export async function generateResurrectionBracket(
   entrantTeamIds: string[]
 ): Promise<void> {
   if (entrantTeamIds.length === 0) {
-    throw new Error("Resurrection needs at least one entrant below the cut.");
+    throw new Error("Redemption needs at least one entrant below the cut.");
   }
   await remove(
     ref(getDb(), paths.resurrectionGroupRoot(tournamentId, gradeId, group))
@@ -582,7 +582,7 @@ export async function updateFinalSchedule(
 }
 
 export type GenerateFinalsOptions = {
-  /** Append resurrection champion per pool when generating main finals (K+1 seeds). */
+  /** Append redemption champion per pool when generating main finals (K+1 seeds). */
   resurrectionWinnerByGroup?: Partial<Record<ResurrectionPoolGroup, string>>;
 };
 

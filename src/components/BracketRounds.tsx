@@ -16,13 +16,13 @@ export function BracketRounds({
 }: {
   matches: FinalMatchData[];
   nameById: Map<string, string>;
-  /** Shown when `matches` is empty (e.g. resurrection vs main finals). */
+  /** Shown when `matches` is empty (e.g. redemption vs main finals). */
   emptyMessage?: string;
-  /** Small caps label above the winner name (e.g. "Winner" for resurrection). */
+  /** Small caps label above the winner name (e.g. "Winner" for redemption bracket). */
   winnerBannerTitle?: string;
-  /** Optional icon shown above the winner banner (e.g. 🪶 for resurrection). */
+  /** Optional icon shown above the winner banner (e.g. 🪶 for redemption). */
   winnerBannerIcon?: string;
-  /** Default footer when final match has no schedule (e.g. resurrection timing copy). */
+  /** Default footer when final match has no schedule (e.g. redemption timing copy). */
   footerHint?: string;
   /** Dark arena styling for live projection (`?display=1`). */
   projectionMode?: boolean;

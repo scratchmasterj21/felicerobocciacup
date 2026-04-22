@@ -6,6 +6,9 @@ export function Layout() {
   const home = pathname === "/";
   const { display, kiosk } = parseViewerDisplayParams(search);
   const wideLive = home && display;
+  /** Single-team fan page: same stage background as live projection for visual continuity. */
+  const teamViewerArena =
+    pathname.startsWith("/t/") && pathname.includes("/team/");
   const hideHeader = home && kiosk;
 
   return (
@@ -30,9 +33,11 @@ export function Layout() {
             ? hideHeader
               ? "flex-1 mx-auto w-full max-w-screen-2xl bg-cup-stage px-4 py-5 md:px-6"
               : "flex-1 mx-auto w-full max-w-screen-2xl bg-cup-stage px-4 py-8 md:px-6"
-            : hideHeader
-              ? "flex-1 max-w-6xl mx-auto w-full px-4 py-5"
-              : "flex-1 max-w-6xl mx-auto w-full px-4 py-8"
+            : teamViewerArena
+              ? "flex-1 mx-auto w-full max-w-3xl bg-cup-stage px-4 py-8 md:px-6 md:py-10"
+              : hideHeader
+                ? "flex-1 max-w-6xl mx-auto w-full px-4 py-5"
+                : "flex-1 max-w-6xl mx-auto w-full px-4 py-8"
         }
       >
         <Outlet />

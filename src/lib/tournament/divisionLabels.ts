@@ -1,4 +1,4 @@
-/** Human label for qualifying pool A or B (Option 2: custom labels on tournament meta). */
+/** Human label for preliminary pool A or B (Option 2: custom labels on tournament meta). */
 export function divisionLabel(
   meta:
     | { divisionLabelA?: string; divisionLabelB?: string }
