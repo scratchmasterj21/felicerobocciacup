@@ -45,6 +45,7 @@ import {
   buildJapanCupChallengeMatch,
   findGradeChampionshipMatch,
   findJapanCupChallengeMatch,
+  type FinalsBracketFormat,
 } from "@/lib/tournament/bracketMatches";
 import { snapshotJapanCupEligibilityForGrade } from "@/lib/firebase/fairPlayService";
 import { isFairPlayEnabled } from "@/lib/tournament/fairPlay";
@@ -846,6 +847,8 @@ export async function setJapanCupChallengeEnabled(
 export type GenerateFinalsOptions = {
   /** Append redemption champion per pool when generating main finals (K+1 seeds). */
   resurrectionWinnerByGroup?: Partial<Record<ResurrectionPoolGroup, string>>;
+  /** Stepladder (default) or classic single-elimination per pool. */
+  bracketFormat?: FinalsBracketFormat;
 };
 
 export async function generateFinalsForGrade(
@@ -876,9 +879,17 @@ export async function generateFinalsForGrade(
         A: rw?.A ? [...strippedSeeds.A, rw.A] : strippedSeeds.A,
         B: rw?.B ? [...strippedSeeds.B, rw.B] : strippedSeeds.B,
       };
+  const bracketFormat = options?.bracketFormat ?? "ladder";
   const trees = Array.isArray(mergedSeeds)
-    ? [buildFinalBracketMatchTree(gradeId, mergedSeeds, "U")]
-    : [buildSplitFinalBracketWithGradeChampionship(gradeId, mergedSeeds.A, mergedSeeds.B)];
+    ? [buildFinalBracketMatchTree(gradeId, mergedSeeds, "U", bracketFormat)]
+    : [
+        buildSplitFinalBracketWithGradeChampionship(
+          gradeId,
+          mergedSeeds.A,
+          mergedSeeds.B,
+          bracketFormat
+        ),
+      ];
   let allMatches = trees.flat();
 
   if (existingGradeMeta.japanCupChallenge?.enabled && championId) {
@@ -910,6 +921,7 @@ export async function generateFinalsForGrade(
   const metaPayload: FinalsGradeMeta = {
     generatedAt: Date.now(),
     seeds: mergedSeeds,
+    bracketFormat,
     ...(existingGradeMeta.japanCupChallenge
       ? { japanCupChallenge: existingGradeMeta.japanCupChallenge }
       : {}),

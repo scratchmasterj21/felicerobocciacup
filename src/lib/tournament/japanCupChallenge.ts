@@ -16,6 +16,8 @@ export interface JapanCupChallengeMeta {
 export interface FinalsGradeMeta {
   generatedAt?: number;
   seeds?: string[] | { A: string[]; B: string[] };
+  /** Stepladder (default) or classic single-elimination finals per pool. */
+  bracketFormat?: "ladder" | "singleElim";
   japanCupChallenge?: JapanCupChallengeMeta;
   trueGradeChampionTeamId?: string;
 }

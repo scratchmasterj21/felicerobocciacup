@@ -209,6 +209,7 @@ export function AdminDashboard() {
   >(null);
   const [appendResurrectionToFinals, setAppendResurrectionToFinals] =
     useState(false);
+  const [useLadderFinalsBracket, setUseLadderFinalsBracket] = useState(true);
   const [resMetaA, setResMetaA] = useState<ResurrectionMeta | null>(null);
   const [resMetaB, setResMetaB] = useState<ResurrectionMeta | null>(null);
   const [resMetaU, setResMetaU] = useState<ResurrectionMeta | null>(null);
@@ -312,9 +313,11 @@ export function AdminDashboard() {
   useEffect(() => {
     setJcEnabled(finalsGradeMeta?.japanCupChallenge?.enabled ?? false);
     setJcChampionName(finalsGradeMeta?.japanCupChallenge?.championName ?? "");
+    setUseLadderFinalsBracket(finalsGradeMeta?.bracketFormat !== "singleElim");
   }, [
     finalsGradeMeta?.japanCupChallenge?.enabled,
     finalsGradeMeta?.japanCupChallenge?.championName,
+    finalsGradeMeta?.bracketFormat,
   ]);
   useEffect(() => {
     if (isUnified) {
@@ -1205,9 +1208,12 @@ export function AdminDashboard() {
       tournamentId,
       grade,
       seeds,
-      Object.keys(resurrectionWinnerByGroup).length > 0
-        ? { resurrectionWinnerByGroup }
-        : undefined
+      {
+        ...(Object.keys(resurrectionWinnerByGroup).length > 0
+          ? { resurrectionWinnerByGroup }
+          : {}),
+        bracketFormat: useLadderFinalsBracket ? "ladder" : "singleElim",
+      }
     );
     setSeedPreview(seeds);
   }
@@ -2505,6 +2511,18 @@ export function AdminDashboard() {
           showExistingBracketWarning={jcExistingDataWarning}
           showChallengeProgressWarning={jcChallengeHasProgress}
         />
+        <label className="flex items-start gap-2 text-sm cursor-pointer max-w-xl">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={useLadderFinalsBracket}
+            onChange={(e) => setUseLadderFinalsBracket(e.target.checked)}
+          />
+          <span>
+            Stepladder finals (top seed plays fewer games). Uncheck for classic
+            single-elimination knockout with byes per pool.
+          </span>
+        </label>
         <label className="flex items-start gap-2 text-sm cursor-pointer max-w-xl">
           <input
             type="checkbox"

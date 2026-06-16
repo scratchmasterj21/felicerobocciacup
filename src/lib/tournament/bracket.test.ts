@@ -88,6 +88,40 @@ describe("buildFinalBracketMatchTree", () => {
     const leagueFinal = tree.find((m) => m.roundIndex === 1);
     expect(leagueFinal?.teamAId).toBe("humming");
   });
+
+  describe("singleElim format", () => {
+    it("builds classic bracket for four seeds with two round-0 matches", () => {
+      const tree = buildFinalBracketMatchTree(
+        "G6",
+        ["kings", "beaters", "chams", "snitch"],
+        "B",
+        "singleElim"
+      );
+      const r0 = tree.filter((m) => m.roundIndex === 0);
+      expect(r0).toHaveLength(2);
+      expect(r0.some((m) => m.slotInRound === 1)).toBe(true);
+      const kingsInR0 = r0.some(
+        (m) => m.teamAId === "kings" || m.teamBId === "kings"
+      );
+      expect(kingsInR0).toBe(true);
+    });
+
+    it("builds power-of-two bracket for five seeds, not a stepladder chain", () => {
+      const tree = buildFinalBracketMatchTree(
+        "G6",
+        ["kings", "beaters", "snitch", "chams", "phoenix"],
+        "B",
+        "singleElim"
+      );
+      const r0 = tree.filter((m) => m.roundIndex === 0);
+      expect(r0.length).toBeGreaterThan(1);
+      const byeMatch = r0.find((m) => m.status === "COMPLETED");
+      expect(byeMatch?.winnerTeamId).toBe("kings");
+      expect(tree.filter((m) => m.slotInRound === 0).length).toBeLessThan(
+        tree.length
+      );
+    });
+  });
 });
 
 describe("buildSplitFinalBracketWithGradeChampionship", () => {

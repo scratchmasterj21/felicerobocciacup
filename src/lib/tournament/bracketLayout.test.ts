@@ -43,4 +43,21 @@ describe("useCompactLadderLayout", () => {
     const tree = buildResurrectionBracketMatchTree("G1", "A", ["a", "b", "c", "d"]);
     expect(useCompactLadderLayout(tree, false)).toBe(false);
   });
+
+  it("is false for singleElim finals format even with few seeds", () => {
+    const split = buildSplitFinalBracketWithGradeChampionship(
+      "G6",
+      ["a", "b", "c", "d", "e"],
+      ["f", "g", "h", "i", "j"],
+      "singleElim"
+    );
+    expect(useCompactLadderLayout(split, true)).toBe(false);
+    const unified = buildFinalBracketMatchTree(
+      "G6",
+      ["a", "b", "c", "d"],
+      "U",
+      "singleElim"
+    );
+    expect(useCompactLadderLayout(unified, false)).toBe(false);
+  });
 });

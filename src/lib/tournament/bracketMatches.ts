@@ -112,6 +112,8 @@ export function buildResurrectionBracketMatchTree(
 /** Max finalists per pool for ladder-style bracket (top seed plays one league match). */
 const CASCADE_LADDER_MAX_SEEDS = 6;
 
+export type FinalsBracketFormat = "ladder" | "singleElim";
+
 /**
  * Ladder bracket: lowest seeds play first; each higher seed waits for the winner below.
  * #1 only plays the last round (one game before grade championship), including when a
@@ -180,9 +182,10 @@ function useCascadeLadderForFinals(seedCount: number): boolean {
 export function buildFinalBracketMatchTree(
   gradeId: string,
   seedsOrdered: string[],
-  bracketGroup?: "A" | "B" | "U"
+  bracketGroup?: "A" | "B" | "U",
+  format: FinalsBracketFormat = "ladder"
 ): FinalMatchData[] {
-  if (useCascadeLadderForFinals(seedsOrdered.length)) {
+  if (format === "ladder" && useCascadeLadderForFinals(seedsOrdered.length)) {
     return buildCascadeLadderBracketTree(gradeId, seedsOrdered, bracketGroup);
   }
   const fr = buildFirstRoundSingleElim(seedsOrdered);
@@ -257,10 +260,11 @@ export function buildFinalBracketMatchTree(
 export function buildSplitFinalBracketWithGradeChampionship(
   gradeId: string,
   seedsA: string[],
-  seedsB: string[]
+  seedsB: string[],
+  format: FinalsBracketFormat = "ladder"
 ): FinalMatchData[] {
-  const treeA = buildFinalBracketMatchTree(gradeId, seedsA, "A");
-  const treeB = buildFinalBracketMatchTree(gradeId, seedsB, "B");
+  const treeA = buildFinalBracketMatchTree(gradeId, seedsA, "A", format);
+  const treeB = buildFinalBracketMatchTree(gradeId, seedsB, "B", format);
 
   const finalA = [...treeA].sort((x, y) => y.roundIndex - x.roundIndex)[0];
   const finalB = [...treeB].sort((x, y) => y.roundIndex - x.roundIndex)[0];
