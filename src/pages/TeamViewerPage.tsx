@@ -46,7 +46,7 @@ import {
   schoolShortByIdFromRecord,
 } from "@/lib/tournament/teamDisplay";
 import type { LeagueId } from "@/lib/tournament/leagueSplit";
-import { buildLiveViewHref } from "@/lib/viewerDisplay";
+import { buildLiveViewHref, buildDefaultLiveViewHref } from "@/lib/viewerDisplay";
 import {
   effectiveLeagueCount,
   partitionTeamsIntoLeaguesFromSaved,
@@ -389,7 +389,7 @@ export function TeamViewerPage() {
       <div className={`${shell} space-y-4`}>
         <div className={panel}>
           <p className="text-sm text-slate-300">Invalid team link.</p>
-          <Link to="/" className={`${linkPrimary} mt-4`}>
+          <Link to={buildDefaultLiveViewHref()} className={`${linkPrimary} mt-4`}>
             Back to live view
           </Link>
         </div>

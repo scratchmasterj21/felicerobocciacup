@@ -2,15 +2,17 @@ import { useMemo, useState } from "react";
 
 const KEY = "felice_roboccia_tournament_id";
 
-export function useTournamentId(): [string, (id: string) => void] {
+export function readStoredTournamentId(): string {
   const envDefault = import.meta.env.VITE_DEFAULT_TOURNAMENT_ID ?? "";
-  const [id, setIdState] = useState(() => {
-    try {
-      return localStorage.getItem(KEY) || envDefault || "cup2026";
-    } catch {
-      return envDefault || "cup2026";
-    }
-  });
+  try {
+    return localStorage.getItem(KEY) || envDefault || "cup2026";
+  } catch {
+    return envDefault || "cup2026";
+  }
+}
+
+export function useTournamentId(): [string, (id: string) => void] {
+  const [id, setIdState] = useState(readStoredTournamentId);
 
   const setId = useMemo(
     () => (next: string) => {

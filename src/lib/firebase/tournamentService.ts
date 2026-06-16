@@ -57,6 +57,10 @@ import {
   type FinalsGradeMeta,
 } from "@/lib/tournament/japanCupChallenge";
 import { resolveTeamId, type ResolveTeamIdOptions } from "@/lib/tournament/teamResolve";
+import {
+  finalMatchHasScores,
+  pickJapanCupChallengeOnRegenerate,
+} from "@/lib/tournament/finalMatchProgress";
 
 function stripDeep(value: unknown): unknown {
   if (value === undefined) return undefined;
@@ -73,14 +77,6 @@ function stripDeep(value: unknown): unknown {
     return o;
   }
   return value;
-}
-
-function finalMatchHasScores(m: FinalMatchData): boolean {
-  return (
-    m.status === "COMPLETED" ||
-    m.status === "IN_PROGRESS" ||
-    Boolean(m.regulation || m.extra8min || m.suddenDeath)
-  );
 }
 
 async function loadQualifyingMatchesRecord(
@@ -898,12 +894,10 @@ export async function generateFinalsForGrade(
         winner
       );
       allMatches.push(challenge);
-      if (
-        priorChallenge?.status === "COMPLETED" &&
-        priorChallenge.id === challenge.id
-      ) {
-        allMatches[allMatches.length - 1] = priorChallenge;
-      }
+      allMatches[allMatches.length - 1] = pickJapanCupChallengeOnRegenerate(
+        priorChallenge,
+        challenge
+      );
       existingGradeMeta.japanCupChallenge = {
         ...existingGradeMeta.japanCupChallenge,
         enabled: true,

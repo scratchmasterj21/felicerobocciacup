@@ -8,6 +8,7 @@ import {
 import { formatScheduleTokyo } from "@/lib/schedule/tokyo";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getBracketMatchDisplay } from "@/lib/tournament/bracketMatchDisplay";
+import { useCompactLadderLayout } from "@/lib/tournament/bracketLayout";
 
 const CONNECT_INSET = 10;
 
@@ -101,6 +102,7 @@ export function BracketRounds({
   })();
 
   if (bracketMatches.length === 0) {
+    if (japanCupChallengeMatch) return null;
     return (
       <p
         className={
@@ -118,12 +120,15 @@ export function BracketRounds({
     tid ? nameById.get(tid) ?? tid : "—";
   const roundCount = rounds.length;
   const firstRoundCount = rounds[0]?.[1].length ?? 0;
+  const compactLayout = useCompactLadderLayout(bracketMatches, splitChampionMode);
+  const p = Boolean(projectionMode);
 
   // Layout constants tuned for TV / projector readability.
   const CARD_W = 230;
-  const CARD_H = 90;
+  const CARD_H = p ? 96 : 90;
   const ROW_GAP = 26;
   const ROUND_GAP = 150;
+  const COMPACT_COL_GAP = 120;
   const PAD_X = 24;
   const PAD_Y = 40;
   /** Space for trophy + winner band + round labels below (no overlap). */
@@ -137,20 +142,44 @@ export function BracketRounds({
   const treeW = (r: number) => Math.max(1, r) * CARD_W + Math.max(0, r - 1) * ROUND_GAP;
   const treeWA = treeW(roundsA);
   const treeWB = treeW(roundsB);
-  const baseXA = PAD_X;
-  const championX = baseXA + treeWA + ROUND_GAP / 2;
-  const baseXB = championX + CARD_W + ROUND_GAP / 2;
-  const fallbackCanvasW = splitChampionMode
-    ? baseXB + treeWB + PAD_X
-    : PAD_X * 2 + roundCount * CARD_W + Math.max(0, roundCount - 1) * ROUND_GAP;
+  const wideBaseXA = PAD_X;
+  const wideChampionX = wideBaseXA + treeWA + ROUND_GAP / 2;
+  const wideBaseXB = wideChampionX + CARD_W + ROUND_GAP / 2;
+  const compactBaseXA = PAD_X;
+  const compactChampionX = compactBaseXA + CARD_W + COMPACT_COL_GAP;
+  const compactBaseXB = compactChampionX + CARD_W + COMPACT_COL_GAP;
+  const championX = compactLayout ? compactChampionX : wideChampionX;
+  const fallbackCanvasW = compactLayout
+    ? splitChampionMode
+      ? compactBaseXB + CARD_W + PAD_X
+      : PAD_X * 2 + CARD_W
+    : splitChampionMode
+      ? wideBaseXB + treeWB + PAD_X
+      : PAD_X * 2 + roundCount * CARD_W + Math.max(0, roundCount - 1) * ROUND_GAP;
 
   const laneHeight = CARD_H + ROW_GAP;
+  const compactTopRowY = HEADER_H + PAD_Y + CARD_H / 2;
+  const maxLadderRounds = Math.max(
+    roundsA,
+    roundsB,
+    (maxRoundByGroup.get("U") ?? 0) + 1
+  );
+  const compactInnerH =
+    maxLadderRounds * CARD_H + Math.max(0, maxLadderRounds - 1) * ROW_GAP;
   const centerY = (roundIndex: number, slotInRound: number) => {
     const step = laneHeight * Math.pow(2, roundIndex);
     return HEADER_H + PAD_Y + step / 2 + slotInRound * step;
   };
   const championCenterY = HEADER_H + 28;
+  const compactCenterY = (m: FinalMatchData) => {
+    const g = m.bracketGroup ?? "U";
+    if (splitChampionMode && g === "U") return compactTopRowY;
+    const maxR = maxRoundByGroup.get(g) ?? m.roundIndex;
+    const rowFromBottom = maxR - m.roundIndex;
+    return HEADER_H + PAD_Y + rowFromBottom * laneHeight + CARD_H / 2;
+  };
   const centerYForMatch = (m: FinalMatchData) => {
+    if (compactLayout) return compactCenterY(m);
     if (splitChampionMode && (m.bracketGroup ?? "U") === "U") return championCenterY;
     return centerY(m.roundIndex, m.slotInRound);
   };
@@ -166,21 +195,30 @@ export function BracketRounds({
       ? CARD_H / 2 + 36 + JC_CARD_H + 16
       : 0;
   const minHFromCards = maxCardBottom + 12 + FOOTER_BAND_H + FOOTER_BOTTOM_INSET + jcExtraH;
-  const heuristicH = HEADER_H + PAD_Y + INNER_H + PAD_Y;
+  const heuristicH = compactLayout
+    ? HEADER_H + PAD_Y + compactInnerH + PAD_Y
+    : HEADER_H + PAD_Y + INNER_H + PAD_Y;
   const canvasH = Math.max(heuristicH, minHFromCards);
 
   const leftX = (roundIndex: number) => PAD_X + roundIndex * (CARD_W + ROUND_GAP);
   const rawXForMatch = (m: FinalMatchData) => {
+    if (compactLayout) {
+      const g = m.bracketGroup ?? "U";
+      if (g === "A") return compactBaseXA;
+      if (g === "B") return compactBaseXB;
+      if (splitChampionMode) return compactChampionX;
+      return PAD_X;
+    }
     if (!splitChampionMode) return leftX(m.roundIndex);
     const g = m.bracketGroup ?? "U";
-    if (g === "A") return baseXA + m.roundIndex * (CARD_W + ROUND_GAP);
+    if (g === "A") return wideBaseXA + m.roundIndex * (CARD_W + ROUND_GAP);
     // Mirror League B so its bracket faces inward toward the championship match.
-    if (g === "B") return baseXB + (maxRoundB - m.roundIndex) * (CARD_W + ROUND_GAP);
-    return championX;
+    if (g === "B") return wideBaseXB + (maxRoundB - m.roundIndex) * (CARD_W + ROUND_GAP);
+    return wideChampionX;
   };
   // Right/left safety space for mirrored split brackets (A/B + grade final).
   // Keep moderate padding so layout stays larger while avoiding edge clipping.
-  const CANVAS_EDGE_PAD = Math.floor(CARD_W * 0.6);
+  const CANVAS_EDGE_PAD = compactLayout ? 0 : Math.floor(CARD_W * 0.6);
   const rawMinX = Math.min(...bracketMatches.map((m) => rawXForMatch(m)));
   const rawMaxX = Math.max(...bracketMatches.map((m) => rawXForMatch(m) + CARD_W));
   const rawContentW = Math.max(1, rawMaxX - rawMinX);
@@ -195,7 +233,11 @@ export function BracketRounds({
   /** Keep some slack for borders/shadows without shrinking too aggressively. */
   const fitW = Math.max(1, innerAvailable - 48);
   const scale = innerAvailable > 0 ? Math.min(1, fitW / canvasW) : 1;
+  const scaledW = canvasW * scale;
   const scaledH = Math.max(200, canvasH * scale);
+  /** Center the bracket when it fits; align left when wider than viewport (scroll). */
+  const centerOffsetX =
+    innerAvailable > 0 && scaledW < innerAvailable ? (innerAvailable - scaledW) / 2 : 0;
   const matchByRoundAndSlot = (roundIndex: number, slotInRound: number) =>
     byRoundAndSlot.get(`${roundIndex}:${slotInRound}`);
 
@@ -222,7 +264,6 @@ export function BracketRounds({
         : null;
 
   const defaultFooter = footerHint ?? "16 min regulation + 8 min extra if tied";
-  const p = Boolean(projectionMode);
   const strokeBase = p ? "#64748b" : "#8a8a8a";
   /** Filled connector path when a winner is known — keep red in projection for clear progression. */
   const strokeProg = "#ff1f1f";
@@ -232,17 +273,18 @@ export function BracketRounds({
       ref={containerRef}
       className={
         p
-          ? "rounded-xl border border-cup-stageBorder bg-cup-stageElevated p-3 max-w-full overflow-hidden shadow-lg shadow-black/25"
-          : "rounded-xl border border-cup-line bg-[#efefef] p-3 max-w-full overflow-hidden"
+          ? "rounded-xl border border-cup-stageBorder bg-cup-stageElevated p-3 max-w-full overflow-x-auto shadow-lg shadow-black/25"
+          : "rounded-xl border border-cup-line bg-[#efefef] p-3 max-w-full overflow-x-auto"
       }
     >
       <div
-        className="relative mx-auto overflow-hidden"
+        className="relative mx-auto overflow-x-auto"
         style={{ width: "100%", maxWidth: "100%", height: `${scaledH}px` }}
       >
         <div
-          className="absolute left-0 top-0 origin-top-left"
+          className="absolute top-0 origin-top-left"
           style={{
+            left: `${centerOffsetX}px`,
             width: `${canvasW}px`,
             height: `${canvasH}px`,
             transform: `scale(${scale})`,
@@ -285,7 +327,6 @@ export function BracketRounds({
               ms.flatMap((m, idx) => {
                 const nextRound = roundIndex + 1;
                 if (nextRound >= roundCount) return [];
-                const sourceY = centerYForMatch(m);
                 const targetSlot = Math.floor(m.slotInRound / 2);
                 const next =
                   m.nextMatchId
@@ -294,18 +335,39 @@ export function BracketRounds({
                 if (!next) return [];
                 const sourceCardX = xForMatch(m);
                 const targetCardX = xForMatch(next);
+                const sourceY = centerYForMatch(m);
                 const targetY = centerYForMatch(next);
-                const sourceFromRight = targetCardX >= sourceCardX;
-                const sourceX = sourceFromRight ? sourceCardX + CARD_W : sourceCardX;
-                const targetXConnect = sourceFromRight
-                  ? targetCardX - CONNECT_INSET
-                  : targetCardX + CARD_W + CONNECT_INSET;
-                const midX = sourceX + (targetXConnect - sourceX) / 2;
-                const path = `M ${sourceX} ${sourceY} L ${midX} ${sourceY} L ${midX} ${targetY} L ${targetXConnect} ${targetY}`;
-                const pathLen =
-                  Math.abs(midX - sourceX) +
-                  Math.abs(targetY - sourceY) +
-                  Math.abs(targetXConnect - midX);
+                const sameGroup = (m.bracketGroup ?? "U") === (next.bracketGroup ?? "U");
+                const compactVerticalFeed =
+                  compactLayout &&
+                  sameGroup &&
+                  (m.bracketGroup ?? "U") !== "U" &&
+                  next.roundIndex === m.roundIndex + 1 &&
+                  m.slotInRound === 0 &&
+                  next.slotInRound === 0;
+
+                let path: string;
+                let pathLen: number;
+                if (compactVerticalFeed) {
+                  const sourceX = sourceCardX + CARD_W / 2;
+                  const sourceYTop = sourceY - CARD_H / 2;
+                  const targetX = targetCardX + CARD_W / 2;
+                  const targetYBottom = targetY + CARD_H / 2;
+                  path = `M ${sourceX} ${sourceYTop} L ${targetX} ${targetYBottom}`;
+                  pathLen = Math.abs(sourceYTop - targetYBottom);
+                } else {
+                  const sourceFromRight = targetCardX >= sourceCardX;
+                  const sourceX = sourceFromRight ? sourceCardX + CARD_W : sourceCardX;
+                  const targetXConnect = sourceFromRight
+                    ? targetCardX - CONNECT_INSET
+                    : targetCardX + CARD_W + CONNECT_INSET;
+                  const midX = sourceX + (targetXConnect - sourceX) / 2;
+                  path = `M ${sourceX} ${sourceY} L ${midX} ${sourceY} L ${midX} ${targetY} L ${targetXConnect} ${targetY}`;
+                  pathLen =
+                    Math.abs(midX - sourceX) +
+                    Math.abs(targetY - sourceY) +
+                    Math.abs(targetXConnect - midX);
+                }
                 const active = Boolean(m.winnerTeamId);
                 return [
                   <path
@@ -474,13 +536,13 @@ export function BracketRounds({
                     <div
                       className={
                         p
-                          ? "px-3 pt-1.5 pb-1 text-[11px] font-mono text-slate-500"
+                          ? "px-3 pt-1.5 pb-1 text-xs font-mono text-slate-500"
                           : "px-3 pt-1.5 pb-1 text-[11px] font-mono text-[#3b3b3b]"
                       }
                     >
                       {m.id}
                     </div>
-                    <div className="px-3 text-sm leading-tight">
+                    <div className={p ? "px-3 text-base leading-tight" : "px-3 text-sm leading-tight"}>
                       <div
                         className={`truncate ${
                           aWinner

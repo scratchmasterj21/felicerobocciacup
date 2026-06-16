@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  describeExistingStudent,
   findDuplicateTeamCodes,
+  filterStudentsByGrade,
   parseStudentCsvPaste,
   resolveTeamId,
 } from "./teamResolve";
@@ -76,6 +78,43 @@ describe("findDuplicateTeamCodes", () => {
     });
     expect(dup).toHaveLength(1);
     expect(dup[0].teamIds).toHaveLength(2);
+  });
+});
+
+describe("describeExistingStudent", () => {
+  it("includes name, code, and grade", () => {
+    expect(
+      describeExistingStudent(
+        "s1",
+        { name: "Alice", teamId: "t1" },
+        { t1: { code: "FC5A001", gradeId: "G5", divisionId: "A" } }
+      )
+    ).toBe("Alice · FC5A001 · G5");
+  });
+});
+
+describe("filterStudentsByGrade", () => {
+  const rosterTeams = {
+    tG3A: { code: "FC3A001", gradeId: "G3", divisionId: "A", name: "A" },
+    tG3B: { code: "FC3B001", gradeId: "G3", divisionId: "B", name: "B" },
+    tG5A: { code: "FC5A001", gradeId: "G5", divisionId: "A", name: "C" },
+  };
+  const rosterStudents = {
+    s1: { name: "Alice", teamId: "tG3A" },
+    s2: { name: "Bob", teamId: "tG3B" },
+    s3: { name: "Carol", teamId: "tG5A" },
+    s4: { name: "Dave" },
+  };
+
+  it("returns only students on teams in the grade", () => {
+    const g3 = filterStudentsByGrade(rosterStudents, rosterTeams, "G3");
+    expect(g3.map((s) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("sorts by team code then name", () => {
+    const g3 = filterStudentsByGrade(rosterStudents, rosterTeams, "G3");
+    expect(g3[0].id).toBe("s1");
+    expect(g3[1].id).toBe("s2");
   });
 });
 

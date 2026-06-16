@@ -13,19 +13,28 @@ const bandClass: Record<FairPlayBand, string> = {
 export function FairPlayBandBadge({
   points,
   initialShare,
+  compact,
 }: {
   points: number;
   /** When set, band colors scale to the student's starting share. */
   initialShare?: number;
+  /** Smaller layout for dense standings tables. */
+  compact?: boolean;
 }) {
   const band =
     typeof initialShare === "number" && initialShare > 0
       ? fairPlayBandForShare(points, initialShare)
       : fairPlayBand(points);
   return (
-    <span className={`inline-flex items-center gap-1.5 font-semibold tabular-nums ${bandClass[band]}`}>
+    <span
+      className={`inline-flex items-center font-semibold tabular-nums ${bandClass[band]} ${
+        compact ? "gap-1 text-xs justify-end" : "gap-1.5"
+      }`}
+    >
       <span
-        className={`h-2 w-2 rounded-full ${
+        className={`rounded-full shrink-0 ${
+          compact ? "h-1.5 w-1.5" : "h-2 w-2"
+        } ${
           band === "green"
             ? "bg-emerald-400"
             : band === "yellow"

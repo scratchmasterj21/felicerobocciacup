@@ -377,7 +377,7 @@ export function ViewerPage() {
       ) : null}
 
       <section className={isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"}>
-        <div>
+        <div className="min-w-0">
           <h2 className={h2Section}>
             Preliminary — {grade} · {divisionLabel(meta, "A")}
           </h2>
@@ -412,7 +412,7 @@ export function ViewerPage() {
           )}
         </div>
         {!isUnified ? (
-          <div>
+          <div className="min-w-0">
             <h2 className={h2Section}>
               Preliminary — {grade} · {divisionLabel(meta, "B")}
             </h2>
@@ -528,7 +528,7 @@ export function ViewerPage() {
                   resMetaU.completedWinnerTeamId}
               </p>
             ) : null}
-            <div className="min-w-0 overflow-x-hidden">
+            <div className="min-w-0 overflow-x-auto">
               <BracketRounds
                 matches={resListU}
                 nameById={nameById}
@@ -551,7 +551,7 @@ export function ViewerPage() {
                     resMetaA.completedWinnerTeamId}
                 </p>
               ) : null}
-              <div className="min-w-0 overflow-x-hidden">
+              <div className="min-w-0 overflow-x-auto">
                 <BracketRounds
                   matches={resListA}
                   nameById={nameById}
@@ -572,7 +572,7 @@ export function ViewerPage() {
                     resMetaB.completedWinnerTeamId}
                 </p>
               ) : null}
-              <div className="min-w-0 overflow-x-hidden">
+              <div className="min-w-0 overflow-x-auto">
                 <BracketRounds
                   matches={resListB}
                   nameById={nameById}
@@ -601,7 +601,7 @@ export function ViewerPage() {
           </div>
         ) : null}
         {isUnified ? (
-          <div className="min-w-0 overflow-x-hidden">
+          <div className="min-w-0 overflow-x-auto">
             <BracketRounds
               matches={finalsUnified}
               nameById={nameById}
@@ -615,7 +615,7 @@ export function ViewerPage() {
             <h3 className={h3Bracket}>
               {grade} · {divisionLabel(meta, "A")} + {divisionLabel(meta, "B")} to grade champion
             </h3>
-            <div className="min-w-0 overflow-x-hidden">
+            <div className="min-w-0 overflow-x-auto">
               <BracketRounds
                 matches={finalsSplitMerged}
                 nameById={nameById}

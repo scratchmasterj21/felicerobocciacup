@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase/config";
 import { ADMIN_APP_BASE_PATH, DEFAULT_ADMIN_EMAIL } from "@/lib/auth/admin";
+import { useTournamentId } from "@/hooks/useTournamentId";
+import { buildLiveViewHref } from "@/lib/viewerDisplay";
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
@@ -13,6 +15,11 @@ export function AdminLoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? ADMIN_APP_BASE_PATH;
+  const [tournamentId] = useTournamentId();
+  const liveViewHref = useMemo(
+    () => buildLiveViewHref(tournamentId, "G1"),
+    [tournamentId]
+  );
 
   async function signInWithGoogle() {
     setError(null);
@@ -67,7 +74,7 @@ export function AdminLoginPage() {
         </button>
       </div>
       <p className="text-sm text-center">
-        <Link to="/" className="text-cup-accent underline">
+        <Link to={liveViewHref} className="text-cup-accent underline">
           Back to live view
         </Link>
       </p>

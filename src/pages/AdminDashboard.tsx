@@ -94,7 +94,10 @@ import type {
 } from "@/lib/firebase/tournamentService";
 import {
   describeTeamMatch,
+  describeExistingStudent,
   findDuplicateTeamCodes,
+  filterStudentsByGrade,
+  listAllStudents,
   listTeamCodes,
   parseStudentCsvPaste,
   teamCodeById,
@@ -122,6 +125,7 @@ import {
   JapanCupConfigPanel,
 } from "@/components/JapanCupFinalsBlock";
 import { buildLiveViewHref } from "@/lib/viewerDisplay";
+import { finalMatchHasScores } from "@/lib/tournament/finalMatchProgress";
 
 const GRADES = ["G1", "G2", "G3", "G4", "G5", "G6"] as const;
 
@@ -168,6 +172,7 @@ export function AdminDashboard() {
   const [qMatches, setQMatches] = useState<Record<string, QualifyingMatchData> | null>(null);
   const [grade, setGrade] = useState("G1");
   const [liveUrlCopied, setLiveUrlCopied] = useState(false);
+  const [copiedTeamId, setCopiedTeamId] = useState<string | null>(null);
   const [fMatches, setFMatches] = useState<Record<string, FinalMatchData> | null>(null);
   const [finalsGradeMeta, setFinalsGradeMeta] = useState<FinalsGradeMeta | null>(null);
   const [jcEnabled, setJcEnabled] = useState(false);
@@ -229,6 +234,10 @@ export function AdminDashboard() {
   const liveViewHref = useMemo(
     () => buildLiveViewHref(tournamentId, grade),
     [tournamentId, grade]
+  );
+  const liveViewDisplayUrl = useMemo(
+    () => `${window.location.origin}${liveViewHref}`,
+    [liveViewHref]
   );
 
   const fairPlayTeacherHref = useMemo(() => {
@@ -935,7 +944,8 @@ export function AdminDashboard() {
     const url = `${window.location.origin}${path}`;
     try {
       await navigator.clipboard.writeText(url);
-      window.alert("Team link copied to clipboard.");
+      setCopiedTeamId(teamId);
+      window.setTimeout(() => setCopiedTeamId(null), 2000);
     } catch {
       window.prompt("Copy this team link:", url);
     }
@@ -1132,6 +1142,19 @@ export function AdminDashboard() {
           );
           return;
         }
+      }
+    }
+    const finalsWithScores = finalsAll.filter(finalMatchHasScores);
+    if (finalsWithScores.length > 0) {
+      const jcNote = jcChallengeHasProgress
+        ? " Japan Cup challenge scores will be kept if the match id is unchanged."
+        : "";
+      if (
+        !window.confirm(
+          `${finalsWithScores.length} finals match(es) for ${grade} already have scores. Regenerating replaces the main bracket and may lose in-progress scores.${jcNote} Continue?`
+        )
+      ) {
+        return;
       }
     }
     const allMatches = Object.values(qMatches ?? {});
@@ -1368,6 +1391,12 @@ export function AdminDashboard() {
               ))}
             </select>
           </div>
+          <code
+            className="hidden lg:inline-block max-w-[min(24rem,40vw)] truncate text-xs text-cup-muted bg-white border border-cup-line rounded-lg px-3 py-2.5"
+            title={liveViewDisplayUrl}
+          >
+            {liveViewDisplayUrl}
+          </code>
           <button
             type="button"
             onClick={() => void onCopyLiveViewUrl()}
@@ -1396,6 +1425,9 @@ export function AdminDashboard() {
       <nav className="sticky top-0 z-30 -mx-1 px-1 py-2 bg-[#f7f5f0]/95 backdrop-blur border-b border-cup-line/80 flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
         <a href="#admin-tournament" className="text-cup-ink hover:underline">
           Tournament
+        </a>
+        <a href="#admin-schools" className="text-cup-ink hover:underline">
+          Schools
         </a>
         <a href="#admin-teams" className="text-cup-ink hover:underline">
           Teams
@@ -1639,7 +1671,10 @@ export function AdminDashboard() {
         )}
       </section>
 
-      <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
+      <section
+        id="admin-schools"
+        className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
+      >
         <h2 className="font-display text-lg font-semibold">Schools</h2>
         <p className="text-xs text-cup-muted">
           Optional registry for multi-school events. Assign teams to a school when adding
@@ -1817,7 +1852,7 @@ export function AdminDashboard() {
                         className="text-xs text-cup-accent hover:underline"
                         onClick={() => void copyTeamViewerLink(t.id)}
                       >
-                        Copy team link
+                        {copiedTeamId === t.id ? "Copied!" : "Copy team link"}
                       </button>
                       <button
                         type="button"
@@ -1927,7 +1962,7 @@ export function AdminDashboard() {
                         className="text-xs text-cup-accent hover:underline"
                         onClick={() => void copyTeamViewerLink(t.id)}
                       >
-                        Copy team link
+                        {copiedTeamId === t.id ? "Copied!" : "Copy team link"}
                       </button>
                       <button
                         type="button"
@@ -2663,13 +2698,41 @@ function AdminStudentsSection({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [bulkFailed, setBulkFailed] = useState(false);
+  const [showAllGrades, setShowAllGrades] = useState(false);
   const teamCodes = useMemo(() => listTeamCodes(teams, gradeId), [teams, gradeId]);
   const duplicateCodes = useMemo(() => findDuplicateTeamCodes(teams), [teams]);
+  const studentsInGrade = useMemo(
+    () => filterStudentsByGrade(students, teams, gradeId),
+    [students, teams, gradeId]
+  );
+  const totalStudentCount = students ? Object.keys(students).length : 0;
+  const studentsOutsideGrade = totalStudentCount - studentsInGrade.length;
+  const rosterRows = useMemo(
+    () => (showAllGrades ? listAllStudents(students, teams) : studentsInGrade),
+    [showAllGrades, students, teams, studentsInGrade]
+  );
+  const existingIdHint = useMemo(() => {
+    const id = studentId.trim();
+    if (!id || !students?.[id]) return null;
+    return describeExistingStudent(id, students[id], teams);
+  }, [studentId, students, teams]);
 
   async function onAddStudent(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
     if (!studentId.trim() || !studentName.trim()) return;
+    const key = studentId.trim();
+    const existing = students?.[key];
+    if (existing) {
+      const label = describeExistingStudent(key, existing, teams);
+      if (
+        !window.confirm(
+          `Student ID "${key}" already exists (${label}). Saving will overwrite that record. Continue?`
+        )
+      ) {
+        return;
+      }
+    }
     try {
       await addStudent(
         tournamentId,
@@ -2702,6 +2765,27 @@ function AdminStudentsSection({
     if (!parsed.ok) {
       setBulkFailed(true);
       setBulkResult(parsed.error);
+      return;
+    }
+    const duplicateRows = parsed.rows.filter((r) => students?.[r.studentId.trim()]);
+    if (duplicateRows.length > 0) {
+      const detail = duplicateRows
+        .slice(0, 5)
+        .map((r) => {
+          const ex = students![r.studentId.trim()];
+          return `Line ${r.line} (${r.studentId}): already exists — ${describeExistingStudent(
+            r.studentId,
+            ex,
+            teams
+          )}`;
+        })
+        .join("; ");
+      setBulkFailed(true);
+      setBulkResult(
+        `${duplicateRows.length} row(s) use an existing student ID. Fix or remove those lines before upload. ${detail}${
+          duplicateRows.length > 5 ? " …" : ""
+        }`
+      );
       return;
     }
     setBulkBusy(true);
@@ -2750,9 +2834,21 @@ function AdminStudentsSection({
       <h2 className="font-display text-lg font-semibold">Students</h2>
       <p className="text-sm text-cup-muted">
         Link each student to a team using its <strong>code</strong> (e.g.{" "}
-        <span className="font-mono text-xs">FCA001</span>), <strong>team name</strong>, or
+        <span className="font-mono text-xs">FC3A001</span>), <strong>team name</strong>, or
         Firebase team id. Upload uses the selected grade <strong>{gradeId}</strong> when a
         code is shared across grades. Stored records always use the canonical team id.
+      </p>
+      <p className="text-xs text-cup-muted">
+        <strong>Student IDs are unique for the whole tournament</strong> (not per grade). The
+        roster below follows the header grade selector
+        {totalStudentCount > 0
+          ? ` — showing ${rosterRows.length}${showAllGrades ? "" : ` of ${totalStudentCount}`} student(s)${
+              !showAllGrades && studentsOutsideGrade > 0
+                ? ` (${studentsOutsideGrade} in other grades hidden)`
+                : ""
+            }`
+          : ""}
+        .
       </p>
       {duplicateCodes.length > 0 ? (
         <div className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 space-y-1">
@@ -2781,6 +2877,16 @@ function AdminStudentsSection({
           code under Teams → Code.
         </p>
       ) : null}
+      {totalStudentCount > 0 ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={showAllGrades}
+            onChange={(e) => setShowAllGrades(e.target.checked)}
+          />
+          Show all grades (check for duplicate IDs across the tournament)
+        </label>
+      ) : null}
       <form onSubmit={onAddStudent} className="flex flex-wrap gap-3 items-end">
         <label className="flex flex-col gap-1 text-sm">
           <span>Student ID (key)</span>
@@ -2790,6 +2896,11 @@ function AdminStudentsSection({
             onChange={(e) => setStudentId(e.target.value)}
             required
           />
+          {existingIdHint ? (
+            <span className="text-xs text-amber-800">
+              ID already used: {existingIdHint}
+            </span>
+          ) : null}
         </label>
         <label className="flex flex-col gap-1 text-sm flex-1 min-w-[160px]">
           <span>Name</span>
@@ -2806,7 +2917,7 @@ function AdminStudentsSection({
             className="border border-cup-line rounded-md px-3 py-2 font-mono text-xs w-40"
             value={studentTeamCode}
             onChange={(e) => setStudentTeamCode(e.target.value)}
-            placeholder="G1-A-01"
+            placeholder="FC3A001"
           />
         </label>
         <button
@@ -2833,7 +2944,7 @@ function AdminStudentsSection({
           className="w-full min-h-[120px] border border-cup-line rounded-md px-3 py-2 font-mono text-xs"
           value={bulkPaste}
           onChange={(e) => setBulkPaste(e.target.value)}
-          placeholder={`studentId,name,teamCode\ns001,Yamada Taro,G1-A-01\ns002,Lee Min,G1-A-01`}
+          placeholder={`studentId,name,teamCode\ns001,Yamada Taro,FC3A001\ns002,Lee Min,FC3B001`}
         />
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -2853,49 +2964,75 @@ function AdminStudentsSection({
           ) : null}
         </div>
       </form>
-      {students && Object.keys(students).length > 0 ? (
+      {students && totalStudentCount > 0 ? (
         <div className="overflow-x-auto border border-cup-line rounded-lg">
           <table className="min-w-full text-sm">
             <thead className="bg-cup-ink/5 text-cup-muted text-xs uppercase tracking-wide">
               <tr>
                 <th className="px-3 py-2 text-left">ID</th>
                 <th className="px-3 py-2 text-left">Name</th>
-                <th className="px-3 py-2 text-left">Team</th>
+                {showAllGrades ? (
+                  <th className="px-3 py-2 text-left">Grade</th>
+                ) : null}
+                <th className="px-3 py-2 text-left">Team code</th>
                 {fairPlayEnabled ? (
                   <th className="px-3 py-2 text-right">Fair Play</th>
                 ) : null}
               </tr>
             </thead>
             <tbody>
-              {Object.entries(students).map(([id, s]) => {
-                const code = teamCodeById(teams, s.teamId);
-                return (
-                  <tr key={id} className="border-t border-cup-line">
-                    <td className="px-3 py-2 font-mono text-xs">{id}</td>
-                    <td className="px-3 py-2">{s.name}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {code ? (
-                        <span className="font-mono">{code}</span>
-                      ) : s.teamId ? (
-                        <span className="font-mono text-cup-muted">
-                          {teams?.[s.teamId]?.name ?? s.teamId}
-                        </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    {fairPlayEnabled ? (
-                      <td className="px-3 py-2 text-right text-xs">
-                        {typeof s.fairPlayInitialShare === "number" ? (
-                          `${s.fairPlayPoints ?? 0}/${s.fairPlayInitialShare}`
+              {rosterRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={fairPlayEnabled ? (showAllGrades ? 5 : 4) : showAllGrades ? 4 : 3}
+                    className="px-3 py-4 text-sm text-cup-muted"
+                  >
+                    {showAllGrades
+                      ? "No students in this tournament yet."
+                      : `No students linked to ${gradeId} teams yet${
+                          teamCodes.length > 0
+                            ? ` (e.g. ${teamCodes.slice(0, 3).join(", ")}${
+                                teamCodes.length > 3 ? ", …" : ""
+                              })`
+                            : ""
+                        }.`}
+                  </td>
+                </tr>
+              ) : (
+                rosterRows.map((s) => {
+                  const code = teamCodeById(teams, s.teamId);
+                  const rowGrade = teams?.[s.teamId ?? ""]?.gradeId;
+                  return (
+                    <tr key={s.id} className="border-t border-cup-line">
+                      <td className="px-3 py-2 font-mono text-xs">{s.id}</td>
+                      <td className="px-3 py-2">{s.name}</td>
+                      {showAllGrades ? (
+                        <td className="px-3 py-2 text-xs font-mono">{rowGrade ?? "—"}</td>
+                      ) : null}
+                      <td className="px-3 py-2 text-xs">
+                        {code ? (
+                          <span className="font-mono">{code}</span>
+                        ) : s.teamId ? (
+                          <span className="font-mono text-cup-muted">
+                            {teams?.[s.teamId]?.name ?? s.teamId}
+                          </span>
                         ) : (
-                          <span className="text-amber-700">not initialized</span>
+                          "—"
                         )}
                       </td>
-                    ) : null}
-                  </tr>
-                );
-              })}
+                      {fairPlayEnabled ? (
+                        <td className="px-3 py-2 text-right text-xs">
+                          {typeof s.fairPlayInitialShare === "number" ? (
+                            `${s.fairPlayPoints ?? 0}/${s.fairPlayInitialShare}`
+                          ) : (
+                            <span className="text-amber-700">not initialized</span>
+                          )}
+                        </td>
+                      ) : null}
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>

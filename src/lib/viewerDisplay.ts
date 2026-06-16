@@ -1,3 +1,5 @@
+import { readStoredTournamentId } from "@/hooks/useTournamentId";
+
 export const VIEWER_GRADES = ["G1", "G2", "G3", "G4", "G5", "G6"] as const;
 export type ViewerGradeId = (typeof VIEWER_GRADES)[number];
 
@@ -30,4 +32,9 @@ export function buildLiveViewHref(
   if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
   p.set("grade", grade);
   return `/?${p.toString()}`;
+}
+
+/** Live view link using stored/env tournament id and a default grade. */
+export function buildDefaultLiveViewHref(grade = "G1"): string {
+  return buildLiveViewHref(readStoredTournamentId(), grade);
 }

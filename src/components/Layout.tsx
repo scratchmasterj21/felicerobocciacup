@@ -1,7 +1,15 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
+import { useMemo } from "react";
+import { useTournamentId } from "@/hooks/useTournamentId";
+import { buildLiveViewHref } from "@/lib/viewerDisplay";
 
 export function Layout() {
   const { pathname } = useLocation();
+  const [tournamentId] = useTournamentId();
+  const liveViewHref = useMemo(
+    () => buildLiveViewHref(tournamentId, "G1"),
+    [tournamentId]
+  );
   const home = pathname === "/";
   /** Single-team fan page: same stage background as live view for visual continuity. */
   const teamViewerArena =
@@ -12,11 +20,11 @@ export function Layout() {
       {!home ? (
         <header className="border-b border-cup-line bg-cup-ink text-cup-paper">
           <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-            <Link to="/" className="font-display font-semibold text-lg tracking-tight">
+            <Link to={liveViewHref} className="font-display font-semibold text-lg tracking-tight">
               Felice Roboccia Cup
             </Link>
             <nav className="flex gap-4 text-sm">
-              <Link to="/" className="hover:underline opacity-90">
+              <Link to={liveViewHref} className="hover:underline opacity-90">
                 Live
               </Link>
             </nav>

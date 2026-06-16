@@ -22,6 +22,7 @@ export function StandingsTable({
 }) {
   const large = Boolean(projectionMode || projector);
   const arena = Boolean(projectionMode);
+  const compactArena = arena && showFairPlay;
 
   if (standings.length === 0) {
     return (
@@ -40,47 +41,80 @@ export function StandingsTable({
   }
 
   const wrap = arena
-    ? "overflow-x-auto rounded-xl border border-cup-stageBorder bg-cup-stageElevated shadow-lg shadow-black/20"
+    ? compactArena
+      ? "overflow-hidden rounded-xl border border-cup-stageBorder bg-cup-stageElevated shadow-lg shadow-black/20"
+      : "overflow-x-auto rounded-xl border border-cup-stageBorder bg-cup-stageElevated shadow-lg shadow-black/20"
     : "overflow-x-auto rounded-lg border border-cup-line bg-white shadow-sm";
 
-  const thRow = arena
-    ? "bg-black/35 text-left text-cup-signal uppercase text-sm tracking-widest"
-    : large
-      ? "bg-cup-ink/5 text-left text-cup-muted uppercase text-sm tracking-wide"
-      : "bg-cup-ink/5 text-left text-cup-muted uppercase text-xs tracking-wide";
+  const thRow = compactArena
+    ? "bg-black/35 text-left text-cup-signal uppercase text-[0.6875rem] tracking-wide"
+    : arena
+      ? "bg-black/35 text-left text-cup-signal uppercase text-sm tracking-widest"
+      : large
+        ? "bg-cup-ink/5 text-left text-cup-muted uppercase text-sm tracking-wide"
+        : "bg-cup-ink/5 text-left text-cup-muted uppercase text-xs tracking-wide";
 
-  const cell = large ? "px-4 py-3" : "px-3 py-2";
-  const tableText = large ? "min-w-full text-base" : "min-w-full text-sm";
+  const cell = compactArena ? "px-1.5 py-2" : large ? "px-4 py-3" : "px-3 py-2";
+  const tableText = compactArena
+    ? "table-fixed w-full text-sm"
+    : large
+      ? "min-w-full text-base"
+      : "min-w-full text-sm";
+  const statCell = `${cell} text-right tabular-nums whitespace-nowrap`;
+  const rankHeader = compactArena ? "#" : "Rank";
+  const matchHeader = compactArena ? "MP" : showFairPlay ? "Match" : "Pts";
+  const totalHeader = compactArena ? "Tot" : "Total";
 
   return (
     <div className={wrap}>
       <table className={tableText}>
+        {compactArena ? (
+          <colgroup>
+            <col style={{ width: "6%" }} />
+            <col style={{ width: "31%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "6.5%" }} />
+            <col style={{ width: "6.5%" }} />
+            <col style={{ width: "6.5%" }} />
+            <col style={{ width: "6.5%" }} />
+            <col style={{ width: "6.5%" }} />
+            <col style={{ width: "6.5%" }} />
+          </colgroup>
+        ) : null}
         <thead>
           <tr className={thRow}>
-            <th className={cell}>Rank</th>
+            <th className={`${cell} whitespace-nowrap`}>{rankHeader}</th>
             <th className={cell}>Team</th>
-            <th className={`${cell} text-right`}>
-              {showFairPlay ? "Match" : "Pts"}
+            <th className={statCell} title={compactArena ? "Match points" : undefined}>
+              {matchHeader}
             </th>
             {showFairPlay ? (
               <>
-                <th className={`${cell} text-right`} title="Sum of student Fair Play points">
-                  Fair Play
+                <th
+                  className={statCell}
+                  title="Sum of student Fair Play points"
+                >
+                  FP
                 </th>
-                <th className={`${cell} text-right`}>Total</th>
+                <th className={statCell} title={compactArena ? "Total points" : undefined}>
+                  {totalHeader}
+                </th>
               </>
             ) : null}
-            <th className={`${cell} text-right`}>W</th>
-            <th className={`${cell} text-right`}>D</th>
-            <th className={`${cell} text-right`}>L</th>
-            <th className={`${cell} text-right`}>GF</th>
-            <th className={`${cell} text-right`}>GA</th>
-            <th className={`${cell} text-right`}>GD</th>
+            <th className={statCell}>W</th>
+            <th className={statCell}>D</th>
+            <th className={statCell}>L</th>
+            <th className={statCell}>GF</th>
+            <th className={statCell}>GA</th>
+            <th className={statCell}>GD</th>
           </tr>
         </thead>
         <tbody>
           {standings.map((s, i) => {
             const hi = highlightTeamId === s.teamId;
+            const teamName = nameById.get(s.teamId) ?? s.teamId;
             let rowClass = "border-t ";
             if (hi) {
               rowClass += arena
@@ -95,11 +129,16 @@ export function StandingsTable({
             return (
               <tr key={s.teamId} className={rowClass.trim()}>
                 <td className={`${cell} font-mono ${textMuted}`}>{s.rank}</td>
-                <td className={`${cell} font-medium ${textMain}`}>
-                  {nameById.get(s.teamId) ?? s.teamId}
+                <td
+                  className={`${cell} font-medium ${textMain} ${
+                    compactArena ? "max-w-0 truncate" : ""
+                  }`}
+                  title={compactArena ? teamName : undefined}
+                >
+                  {teamName}
                 </td>
                 <td
-                  className={`${cell} text-right font-semibold ${
+                  className={`${statCell} font-semibold ${
                     arena && !showFairPlay ? "text-cup-signal" : ""
                   }`}
                 >
@@ -107,11 +146,14 @@ export function StandingsTable({
                 </td>
                 {showFairPlay ? (
                   <>
-                    <td className={`${cell} text-right`}>
-                      <FairPlayBandBadge points={s.fairPlayPoints ?? 15} />
+                    <td className={statCell}>
+                      <FairPlayBandBadge
+                        points={s.fairPlayPoints ?? 15}
+                        compact={compactArena}
+                      />
                     </td>
                     <td
-                      className={`${cell} text-right font-bold tabular-nums ${
+                      className={`${statCell} font-bold ${
                         arena ? "text-cup-signal" : "text-cup-ink"
                       }`}
                     >
@@ -120,29 +162,29 @@ export function StandingsTable({
                   </>
                 ) : null}
                 <td
-                  className={`${cell} text-right ${
+                  className={`${statCell} ${
                     arena ? "text-cup-winBright" : "text-cup-ink"
                   }`}
                 >
                   {s.wins}
                 </td>
                 <td
-                  className={`${cell} text-right ${
+                  className={`${statCell} ${
                     arena ? "text-cup-drawBright" : "text-cup-ink"
                   }`}
                 >
                   {s.draws}
                 </td>
                 <td
-                  className={`${cell} text-right ${
+                  className={`${statCell} ${
                     arena ? "text-cup-lossBright" : "text-cup-ink"
                   }`}
                 >
                   {s.losses}
                 </td>
-                <td className={`${cell} text-right ${textMain}`}>{s.goalsFor}</td>
-                <td className={`${cell} text-right ${textMain}`}>{s.goalsAgainst}</td>
-                <td className={`${cell} text-right ${textMain}`}>{s.goalDiff}</td>
+                <td className={`${statCell} ${textMain}`}>{s.goalsFor}</td>
+                <td className={`${statCell} ${textMain}`}>{s.goalsAgainst}</td>
+                <td className={`${statCell} ${textMain}`}>{s.goalDiff}</td>
               </tr>
             );
           })}

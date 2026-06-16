@@ -109,6 +109,70 @@ export function buildResurrectionBracketMatchTree(
   return matches;
 }
 
+/** Max finalists per pool for ladder-style bracket (top seed plays one league match). */
+const CASCADE_LADDER_MAX_SEEDS = 6;
+
+/**
+ * Ladder bracket: lowest seeds play first; each higher seed waits for the winner below.
+ * #1 only plays the last round (one game before grade championship), including when a
+ * redemption champion is appended as the lowest seed (K+1).
+ *
+ * n=3: s2 vs s3 → s1 vs winner
+ * n=4: s3 vs s4 → s2 vs w → s1 vs w
+ * n=5: s4 vs s5 → s3 vs w → s2 vs w → s1 vs w
+ */
+function buildCascadeLadderBracketTree(
+  gradeId: string,
+  seedsOrdered: string[],
+  bracketGroup?: "A" | "B" | "U"
+): FinalMatchData[] {
+  const n = seedsOrdered.length;
+  const roundCount = n - 1;
+  const matches: FinalMatchData[] = [];
+
+  for (let r = 0; r < roundCount; r++) {
+    const id = groupedMatchId(gradeId, r, 0, bracketGroup);
+    const prevId =
+      r > 0 ? groupedMatchId(gradeId, r - 1, 0, bracketGroup) : undefined;
+    const nextId =
+      r < roundCount - 1
+        ? groupedMatchId(gradeId, r + 1, 0, bracketGroup)
+        : undefined;
+
+    if (r === 0) {
+      matches.push({
+        id,
+        gradeId,
+        bracketGroup,
+        roundIndex: r,
+        slotInRound: 0,
+        teamAId: seedsOrdered[n - 2],
+        teamBId: seedsOrdered[n - 1],
+        status: "SCHEDULED",
+        nextMatchId: nextId,
+      });
+    } else {
+      matches.push({
+        id,
+        gradeId,
+        bracketGroup,
+        roundIndex: r,
+        slotInRound: 0,
+        teamAId: seedsOrdered[n - 2 - r],
+        status: "SCHEDULED",
+        feedsFromB: prevId,
+        nextMatchId: nextId,
+      });
+    }
+  }
+
+  return matches;
+}
+
+function useCascadeLadderForFinals(seedCount: number): boolean {
+  return seedCount >= 2 && seedCount <= CASCADE_LADDER_MAX_SEEDS;
+}
+
 /**
  * Build full single-elim tree match records. Round 0 = first round.
  * Bye winners are marked COMPLETED with winnerTeamId; feeder matches link via feedsFromA/B.
@@ -118,6 +182,9 @@ export function buildFinalBracketMatchTree(
   seedsOrdered: string[],
   bracketGroup?: "A" | "B" | "U"
 ): FinalMatchData[] {
+  if (useCascadeLadderForFinals(seedsOrdered.length)) {
+    return buildCascadeLadderBracketTree(gradeId, seedsOrdered, bracketGroup);
+  }
   const fr = buildFirstRoundSingleElim(seedsOrdered);
   const bracketSize = fr.bracketSize;
   const roundCount = totalRounds(bracketSize);

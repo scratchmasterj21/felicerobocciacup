@@ -38,6 +38,56 @@ describe("buildFinalBracketMatchTree", () => {
     const finals = tree.filter((m) => m.roundIndex === lastRound);
     expect(finals.length).toBe(1);
   });
+
+  it("gives top seed no round-0 match when four teams qualify", () => {
+    const tree = buildFinalBracketMatchTree("G6", ["kings", "beaters", "chams", "snitch"], "B");
+    const r0 = tree.filter((m) => m.roundIndex === 0);
+    expect(r0).toHaveLength(1);
+    expect(r0[0].teamAId).toBe("chams");
+    expect(r0[0].teamBId).toBe("snitch");
+    const topInR0 = r0.some(
+      (m) => m.teamAId === "kings" || m.teamBId === "kings"
+    );
+    expect(topInR0).toBe(false);
+    const leagueFinal = tree.find((m) => m.roundIndex === 2);
+    expect(leagueFinal?.teamAId).toBe("kings");
+    expect(leagueFinal?.feedsFromB).toBeDefined();
+  });
+
+  it("keeps top seed for last round only when five qualify (e.g. redemption appended)", () => {
+    const tree = buildFinalBracketMatchTree(
+      "G6",
+      ["kings", "beaters", "snitch", "chams", "phoenix"],
+      "B"
+    );
+    expect(tree.filter((m) => m.roundIndex === 0)).toHaveLength(1);
+    expect(tree[0].teamAId).toBe("chams");
+    expect(tree[0].teamBId).toBe("phoenix");
+    const kingsBeforeFinal = tree.filter(
+      (m) =>
+        m.roundIndex < 3 &&
+        (m.teamAId === "kings" || m.teamBId === "kings")
+    );
+    expect(kingsBeforeFinal).toHaveLength(0);
+    const leagueFinal = tree.find((m) => m.roundIndex === 3);
+    expect(leagueFinal?.teamAId).toBe("kings");
+    expect(tree.find((m) => m.roundIndex === 1)?.teamAId).toBe("snitch");
+    expect(tree.find((m) => m.roundIndex === 2)?.teamAId).toBe("beaters");
+  });
+
+  it("top seed waits until last round when three teams qualify", () => {
+    const tree = buildFinalBracketMatchTree("G6", ["humming", "lions", "rivals"], "A");
+    const topInR0 = tree.some(
+      (m) =>
+        m.roundIndex === 0 &&
+        (m.teamAId === "humming" || m.teamBId === "humming")
+    );
+    expect(topInR0).toBe(false);
+    expect(tree[0].teamAId).toBe("lions");
+    expect(tree[0].teamBId).toBe("rivals");
+    const leagueFinal = tree.find((m) => m.roundIndex === 1);
+    expect(leagueFinal?.teamAId).toBe("humming");
+  });
 });
 
 describe("buildSplitFinalBracketWithGradeChampionship", () => {

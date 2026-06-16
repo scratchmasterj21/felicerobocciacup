@@ -4,11 +4,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAdminGate } from "@/hooks/useAdminGate";
 import { getFirebaseAuth } from "@/lib/firebase/config";
 import { ADMIN_APP_LOGIN_PATH, DEFAULT_ADMIN_EMAIL } from "@/lib/auth/admin";
+import { useTournamentId } from "@/hooks/useTournamentId";
+import { buildLiveViewHref } from "@/lib/viewerDisplay";
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const { loading: adminLoading, isAdmin } = useAdminGate(user);
   const location = useLocation();
+  const [tournamentId] = useTournamentId();
+  const liveViewHref = buildLiveViewHref(tournamentId, "G1");
 
   if (authLoading || (user && adminLoading)) {
     return (
@@ -48,7 +52,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
             Sign out
           </button>
           <Link
-            to="/"
+            to={liveViewHref}
             className="px-4 py-2 rounded-lg border border-cup-line text-sm font-medium bg-white"
           >
             Live view

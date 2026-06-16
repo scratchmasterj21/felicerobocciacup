@@ -171,12 +171,80 @@ export function listTeamCodes(
   return [...out].sort();
 }
 
+/** Team ids belonging to a grade (for roster / student filtering). */
+export function teamIdsInGrade(
+  teams: TeamCodeLookup | null | undefined,
+  gradeId: string
+): Set<string> {
+  const out = new Set<string>();
+  if (!teams) return out;
+  for (const [id, t] of Object.entries(teams)) {
+    if (t.gradeId === gradeId) out.add(id);
+  }
+  return out;
+}
+
+/** Students linked to a team in the given grade (follows admin grade selector). */
+export function filterStudentsByGrade<T extends { teamId?: string; name?: string }>(
+  students: Record<string, T> | null | undefined,
+  teams: TeamCodeLookup | null | undefined,
+  gradeId: string
+): Array<{ id: string } & T> {
+  if (!students) return [];
+  const teamIds = teamIdsInGrade(teams, gradeId);
+  return Object.entries(students)
+    .filter(([, s]) => s.teamId && teamIds.has(s.teamId))
+    .map(([id, s]) => ({ id, ...s }))
+    .sort((a, b) => {
+      const codeA = teamCodeById(teams, a.teamId) ?? a.teamId ?? "";
+      const codeB = teamCodeById(teams, b.teamId) ?? b.teamId ?? "";
+      return `${codeA}-${a.name ?? ""}`.localeCompare(`${codeB}-${b.name ?? ""}`);
+    });
+}
+
 export function teamCodeById(
   teams: TeamCodeLookup | null | undefined,
   teamId: string | undefined
 ): string | undefined {
   if (!teamId || !teams) return undefined;
   return teams[teamId]?.code?.trim() || undefined;
+}
+
+/** Human-readable label for an existing student (duplicate-id warnings). */
+export function describeExistingStudent(
+  studentId: string,
+  student: { name?: string; teamId?: string },
+  teams: TeamCodeLookup | null | undefined
+): string {
+  const parts: string[] = [];
+  if (student.name?.trim()) parts.push(student.name.trim());
+  else parts.push(studentId);
+  const code = teamCodeById(teams, student.teamId);
+  if (code) parts.push(code);
+  const grade = student.teamId ? teams?.[student.teamId]?.gradeId : undefined;
+  if (grade) parts.push(grade);
+  else if (student.teamId) parts.push("no grade on team");
+  else parts.push("no team");
+  return parts.join(" · ");
+}
+
+/** All students sorted for admin roster (optionally with grade from team). */
+export function listAllStudents<T extends { teamId?: string; name?: string }>(
+  students: Record<string, T> | null | undefined,
+  teams: TeamCodeLookup | null | undefined
+): Array<{ id: string; gradeId?: string } & T> {
+  if (!students) return [];
+  return Object.entries(students)
+    .map(([id, s]) => ({
+      id,
+      ...s,
+      gradeId: s.teamId ? teams?.[s.teamId]?.gradeId : undefined,
+    }))
+    .sort((a, b) => {
+      const ga = a.gradeId ?? "—";
+      const gb = b.gradeId ?? "—";
+      return `${ga}-${a.name ?? ""}`.localeCompare(`${gb}-${b.name ?? ""}`);
+    });
 }
 
 export type ParsedStudentCsvRow = {
