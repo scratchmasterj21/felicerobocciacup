@@ -224,3 +224,58 @@ export function buildSplitFinalBracketWithGradeChampionship(
 
   return [...linkedA, ...linkedB, championship];
 }
+
+/** Grade championship final (split: fed by both leagues; unified: top U-bracket final before challenge). */
+export function findGradeChampionshipMatch(
+  matches: FinalMatchData[]
+): FinalMatchData | undefined {
+  const splitFinal = matches.find(
+    (m) =>
+      (m.bracketGroup ?? "U") === "U" &&
+      m.matchKind !== "japanCupChallenge" &&
+      m.feedsFromA &&
+      m.feedsFromB
+  );
+  if (splitFinal) return splitFinal;
+  const uMatches = matches.filter(
+    (m) =>
+      (m.bracketGroup ?? "U") === "U" && m.matchKind !== "japanCupChallenge"
+  );
+  if (uMatches.length === 0) return undefined;
+  return uMatches.sort((a, b) => b.roundIndex - a.roundIndex)[0];
+}
+
+export function findJapanCupChallengeMatch(
+  matches: FinalMatchData[]
+): FinalMatchData | undefined {
+  return matches.find((m) => m.matchKind === "japanCupChallenge");
+}
+
+export function japanCupChallengeMatchId(
+  gradeId: string,
+  gradeFinalRoundIndex: number
+): string {
+  return groupedMatchId(gradeId, gradeFinalRoundIndex + 1, 0, "U");
+}
+
+/** Optional super-final after grade championship: grade final winner vs admin Japan Cup champion. */
+export function buildJapanCupChallengeMatch(
+  gradeId: string,
+  gradeFinalMatch: FinalMatchData,
+  championTeamId: string,
+  gradeFinalWinnerId?: string
+): FinalMatchData {
+  const id = japanCupChallengeMatchId(gradeId, gradeFinalMatch.roundIndex);
+  return {
+    id,
+    gradeId,
+    bracketGroup: "U",
+    matchKind: "japanCupChallenge",
+    roundIndex: gradeFinalMatch.roundIndex + 1,
+    slotInRound: 0,
+    teamAId: gradeFinalWinnerId,
+    teamBId: championTeamId,
+    status: "SCHEDULED",
+    feedsFromA: gradeFinalMatch.id,
+  };
+}

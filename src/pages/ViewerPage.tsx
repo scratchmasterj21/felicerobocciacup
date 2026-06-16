@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useTournamentId } from "@/hooks/useTournamentId";
 import {
   getDivisionLeagueCount,
@@ -12,12 +12,20 @@ import {
   subscribeTeams,
   subscribeTournamentMeta,
 } from "@/lib/firebase/tournamentService";
-import type { QualifyingMatchData } from "@/lib/tournament/types";
-import type { FinalMatchData, ResurrectionMeta } from "@/lib/tournament/types";
+import {
+  isRegularPoolTeam,
+  resolveJapanCupChallengeDisplayMatch,
+} from "@/lib/tournament/japanCupChallenge";
+import type { FinalMatchData, QualifyingMatchData, ResurrectionMeta } from "@/lib/tournament/types";
 import { compareFinalByRoundThenScheduleThenSlot } from "@/lib/schedule/matchSort";
 import { rankStandings } from "@/lib/tournament/standings";
+import {
+  isFairPlayEnabled,
+  rankStandingsFairPlayOptions,
+} from "@/lib/tournament/fairPlay";
 import { StandingsTable } from "@/components/StandingsTable";
 import { BracketRounds } from "@/components/BracketRounds";
+import { JapanCupChallengeMatchup } from "@/components/JapanCupChallengeMatchup";
 import { QualifyingScheduleList } from "@/components/QualifyingScheduleList";
 import { QualifyingScheduleByRound } from "@/components/QualifyingScheduleByRound";
 import { divisionLabel } from "@/lib/tournament/divisionLabels";
@@ -30,19 +38,17 @@ import {
   effectiveLeagueCount,
   partitionTeamsIntoLeaguesFromSaved,
 } from "@/lib/tournament/leagueSplit";
-import { parseViewerDisplayParams, VIEWER_GRADES } from "@/lib/viewerDisplay";
+import { parseViewerDisplayParams } from "@/lib/viewerDisplay";
+import { subscribeStudents, subscribeFinalsGradeMeta } from "@/lib/firebase/fairPlayService";
+import type { StudentRecord } from "@/lib/firebase/tournamentService";
+import type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
 
-/** Shown in projector + kiosk header when tournament meta has no name yet (replaces plain “Tournament” text). */
-const PROJECTOR_KIOSK_FALLBACK_LOGO_SRC = "https://i.imgur.com/RpJzD9D.png";
+const LIVE_FALLBACK_LOGO_SRC = "https://i.imgur.com/RpJzD9D.png";
 
 export function ViewerPage() {
   const [tournamentId, setTournamentId] = useTournamentId();
   const [searchParams] = useSearchParams();
   const [grade, setGrade] = useState<string>("G1");
-  const { display: displayMode, kiosk: kioskMode } = useMemo(
-    () => parseViewerDisplayParams(searchParams.toString()),
-    [searchParams]
-  );
   const [meta, setMeta] = useState<{
     name: string;
     schoolYear: number;
@@ -64,6 +70,7 @@ export function ViewerPage() {
         divisionId: "A" | "B";
         name: string;
         schoolId?: string;
+        fairPlayPoints?: number;
       }
     >
   | null>(null);
@@ -72,12 +79,14 @@ export function ViewerPage() {
   >(null);
   const [qMatches, setQMatches] = useState<Record<string, QualifyingMatchData> | null>(null);
   const [fMatches, setFMatches] = useState<Record<string, FinalMatchData> | null>(null);
+  const [finalsGradeMeta, setFinalsGradeMeta] = useState<FinalsGradeMeta | null>(null);
   const [resMetaA, setResMetaA] = useState<ResurrectionMeta | null>(null);
   const [resMetaB, setResMetaB] = useState<ResurrectionMeta | null>(null);
   const [resMetaU, setResMetaU] = useState<ResurrectionMeta | null>(null);
   const [resMatchesA, setResMatchesA] = useState<Record<string, FinalMatchData> | null>(null);
   const [resMatchesB, setResMatchesB] = useState<Record<string, FinalMatchData> | null>(null);
   const [resMatchesU, setResMatchesU] = useState<Record<string, FinalMatchData> | null>(null);
+  const [students, setStudents] = useState<Record<string, StudentRecord> | null>(null);
 
   useEffect(() => {
     const tid = searchParams.get("tournamentId");
@@ -109,9 +118,24 @@ export function ViewerPage() {
     return subscribeFinalMatches(tournamentId, grade, setFMatches);
   }, [tournamentId, grade]);
 
+  useEffect(() => {
+    return subscribeFinalsGradeMeta(tournamentId, grade, setFinalsGradeMeta);
+  }, [tournamentId, grade]);
+
   const isUnified =
     meta?.qualifyingMode === "unified" ||
     meta?.tournamentKind === "interSchool";
+  const fairPlayEnabled = isFairPlayEnabled(meta);
+  const fpOpts = (teamIds: string[]) =>
+    rankStandingsFairPlayOptions(students, teamIds, fairPlayEnabled, teams);
+
+  useEffect(() => {
+    if (!fairPlayEnabled) {
+      setStudents(null);
+      return;
+    }
+    return subscribeStudents(tournamentId, setStudents);
+  }, [tournamentId, fairPlayEnabled]);
 
   useEffect(() => {
     if (isUnified) {
@@ -166,14 +190,20 @@ export function ViewerPage() {
   const teamsA = useMemo(
     () =>
       teamList
-        .filter((t) => t.gradeId === grade && t.divisionId === "A")
+        .filter(
+          (t) =>
+            isRegularPoolTeam(t) && t.gradeId === grade && t.divisionId === "A"
+        )
         .map((t) => t.id),
     [teamList, grade]
   );
   const teamsB = useMemo(
     () =>
       teamList
-        .filter((t) => t.gradeId === grade && t.divisionId === "B")
+        .filter(
+          (t) =>
+            isRegularPoolTeam(t) && t.gradeId === grade && t.divisionId === "B"
+        )
         .map((t) => t.id),
     [teamList, grade]
   );
@@ -187,8 +217,14 @@ export function ViewerPage() {
     return all.filter((m) => m.gradeId === grade && m.divisionId === "B");
   }, [qMatches, grade]);
 
-  const standA = useMemo(() => rankStandings(teamsA, qualA), [teamsA, qualA]);
-  const standB = useMemo(() => rankStandings(teamsB, qualB), [teamsB, qualB]);
+  const standA = useMemo(
+    () => rankStandings(teamsA, qualA, fpOpts(teamsA)),
+    [teamsA, qualA, teams, students, fairPlayEnabled]
+  );
+  const standB = useMemo(
+    () => rankStandings(teamsB, qualB, fpOpts(teamsB)),
+    [teamsB, qualB, teams, students, fairPlayEnabled]
+  );
   const requestedLeagueCountA = useMemo(
     () => getDivisionLeagueCount(meta, grade, "A"),
     [meta, grade]
@@ -224,20 +260,20 @@ export function ViewerPage() {
   const qualB_L1 = useMemo(() => qualB.filter((m) => (m.leagueId ?? "L1") === "L1"), [qualB]);
   const qualB_L2 = useMemo(() => qualB.filter((m) => m.leagueId === "L2"), [qualB]);
   const standA_L1 = useMemo(
-    () => rankStandings(leagueTeamsA.L1, qualA_L1),
-    [leagueTeamsA, qualA_L1]
+    () => rankStandings(leagueTeamsA.L1, qualA_L1, fpOpts(leagueTeamsA.L1)),
+    [leagueTeamsA, qualA_L1, teams, students, fairPlayEnabled]
   );
   const standA_L2 = useMemo(
-    () => rankStandings(leagueTeamsA.L2, qualA_L2),
-    [leagueTeamsA, qualA_L2]
+    () => rankStandings(leagueTeamsA.L2, qualA_L2, fpOpts(leagueTeamsA.L2)),
+    [leagueTeamsA, qualA_L2, teams, students, fairPlayEnabled]
   );
   const standB_L1 = useMemo(
-    () => rankStandings(leagueTeamsB.L1, qualB_L1),
-    [leagueTeamsB, qualB_L1]
+    () => rankStandings(leagueTeamsB.L1, qualB_L1, fpOpts(leagueTeamsB.L1)),
+    [leagueTeamsB, qualB_L1, teams, students, fairPlayEnabled]
   );
   const standB_L2 = useMemo(
-    () => rankStandings(leagueTeamsB.L2, qualB_L2),
-    [leagueTeamsB, qualB_L2]
+    () => rankStandings(leagueTeamsB.L2, qualB_L2, fpOpts(leagueTeamsB.L2)),
+    [leagueTeamsB, qualB_L2, teams, students, fairPlayEnabled]
   );
 
   const schoolShortById = useMemo(
@@ -251,6 +287,10 @@ export function ViewerPage() {
   );
 
   const finalMatchList = useMemo(() => Object.values(fMatches ?? {}), [fMatches]);
+  const japanCupChallengeDisplay = useMemo(
+    () => resolveJapanCupChallengeDisplayMatch(finalMatchList, finalsGradeMeta, grade),
+    [finalMatchList, finalsGradeMeta, grade]
+  );
   const finalsUnified = useMemo(
     () => finalMatchList.filter((m) => m.bracketGroup === "U" || m.bracketGroup == null),
     [finalMatchList]
@@ -289,125 +329,39 @@ export function ViewerPage() {
     [resMatchesB]
   );
 
-  const projectionMode = displayMode;
-
-  const h2Section = displayMode
-    ? "font-displayWide text-2xl md:text-3xl font-semibold mb-3 text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide"
-    : "font-display text-lg font-semibold mb-3";
-  const h3League = displayMode
-    ? "text-sm md:text-base font-semibold text-cup-signalMuted mb-1 tracking-wide"
-    : "text-xs font-semibold text-cup-muted mb-1";
-  const h3Bracket = displayMode
-    ? "text-base md:text-lg font-semibold text-cup-signalMuted mb-2 tracking-wide"
-    : "text-sm font-semibold text-cup-muted mb-2";
-  const h2Major = displayMode
-    ? "font-displayWide text-2xl md:text-3xl font-semibold text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide"
-    : "font-display text-lg font-semibold";
-  const bodyMuted = displayMode
-    ? "text-base text-slate-400 max-w-2xl"
-    : "text-sm text-cup-muted max-w-2xl";
-  const bodyMutedNarrow = displayMode
-    ? "text-base text-slate-400 max-w-xl"
-    : "text-sm text-cup-muted max-w-xl";
-  const interSchoolBanner = displayMode
-    ? "text-base font-medium text-slate-100 border border-cup-stageBorder rounded-xl px-4 py-3 bg-cup-stageElevated/90 max-w-2xl"
-    : "text-sm font-medium text-cup-ink border border-cup-line rounded-lg px-3 py-2 bg-cup-paper/50 max-w-xl";
-
-  const normalViewSearch = useMemo(() => {
-    const p = new URLSearchParams();
-    const tid = searchParams.get("tournamentId");
-    if (tid) p.set("tournamentId", tid);
-    const g = searchParams.get("grade");
-    if (g) p.set("grade", g);
-    return p.toString();
-  }, [searchParams]);
+  const h2Section =
+    "font-displayWide text-2xl md:text-3xl font-semibold mb-3 text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide";
+  const h3League =
+    "text-sm md:text-base font-semibold text-cup-signalMuted mb-1 tracking-wide";
+  const h3Bracket =
+    "text-base md:text-lg font-semibold text-cup-signalMuted mb-2 tracking-wide";
+  const h2Major =
+    "font-displayWide text-2xl md:text-3xl font-semibold text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide";
+  const bodyMuted = "text-base text-slate-400 max-w-2xl";
+  const bodyMutedNarrow = "text-base text-slate-400 max-w-xl";
 
   return (
-    <div
-      className={
-        displayMode
-          ? "projection-shell space-y-10 rounded-2xl px-2 py-3 md:px-4 md:py-5"
-          : "space-y-8"
-      }
-    >
-      {!displayMode ? (
-        <div className="flex flex-wrap gap-4 items-end">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-cup-muted font-medium">Tournament ID</span>
-            <input
-              className="border border-cup-line rounded-md px-3 py-2 bg-white min-w-[200px]"
-              value={tournamentId}
-              onChange={(e) => setTournamentId(e.target.value)}
+    <div className="projection-shell space-y-10 rounded-2xl px-2 py-3 md:px-4 md:py-5">
+      <header className="text-center border-b border-cup-stageBorder pb-6 mb-2">
+        <h1 className="font-display text-3xl md:text-5xl font-semibold text-slate-50 tracking-tight flex justify-center">
+          {meta?.name?.trim() ? (
+            meta.name.trim()
+          ) : (
+            <img
+              src={LIVE_FALLBACK_LOGO_SRC}
+              alt="Felice Roboccia Cup"
+              className="max-h-[min(22vh,200px)] w-auto object-contain mx-auto"
+              decoding="async"
             />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-cup-muted font-medium">Grade</span>
-            <select
-              className="border border-cup-line rounded-md px-3 py-2 bg-white"
-              value={grade}
-              onChange={(e) => setGrade(e.target.value)}
-            >
-              {VIEWER_GRADES.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      ) : null}
-
-      {displayMode && kioskMode ? (
-        <header className="text-center border-b border-cup-stageBorder pb-6 mb-2">
-          <h1 className="font-display text-3xl md:text-5xl font-semibold text-slate-50 tracking-tight flex justify-center">
-            {meta?.name?.trim() ? (
-              meta.name.trim()
-            ) : (
-              <img
-                src={PROJECTOR_KIOSK_FALLBACK_LOGO_SRC}
-                alt="Felice Roboccia Cup"
-                className="max-h-[min(22vh,200px)] w-auto object-contain mx-auto"
-                decoding="async"
-              />
-            )}
-          </h1>
-          <p className="font-displayWide text-cup-signal text-xl md:text-3xl mt-3 font-semibold tracking-wide">
-            {grade}
-          </p>
-          {meta && Number.isFinite(Number(meta.schoolYear)) ? (
-            <p className="text-slate-400 text-lg mt-1 tabular-nums">{meta.schoolYear}</p>
-          ) : null}
-        </header>
-      ) : null}
-
-      {meta && !(displayMode && kioskMode) ? (
-        <div className="space-y-2">
-          <h1
-            className={
-              displayMode
-                ? "font-display text-3xl md:text-4xl font-semibold text-slate-50"
-                : "font-display text-2xl font-semibold text-cup-ink"
-            }
-          >
-            {meta.name}{" "}
-            <span
-              className={
-                displayMode
-                  ? "text-slate-400 font-sans text-xl md:text-2xl font-normal"
-                  : "text-cup-muted font-sans text-lg font-normal"
-              }
-            >
-              ({meta.schoolYear})
-            </span>
-          </h1>
-          {meta.tournamentKind === "interSchool" ? (
-            <p className={interSchoolBanner}>
-              Inter-school event — unified preliminary league and school-vs-school fixtures when
-              two schools are registered.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+          )}
+        </h1>
+        <p className="font-displayWide text-cup-signal text-xl md:text-3xl mt-3 font-semibold tracking-wide">
+          {grade}
+        </p>
+        {meta && Number.isFinite(Number(meta.schoolYear)) ? (
+          <p className="text-slate-400 text-lg mt-1 tabular-nums">{meta.schoolYear}</p>
+        ) : null}
+      </header>
 
       {isUnified ? (
         <p className={bodyMutedNarrow}>
@@ -415,11 +369,14 @@ export function ViewerPage() {
         </p>
       ) : null}
 
-      <section
-        className={
-          isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"
-        }
-      >
+      {fairPlayEnabled ? (
+        <p className={bodyMutedNarrow}>
+          Preliminary standings only: <strong>Total</strong> = match points + team Fair Play (sum
+          of each student&apos;s share of 15). Finals matches are not scored with Fair Play.
+        </p>
+      ) : null}
+
+      <section className={isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"}>
         <div>
           <h2 className={h2Section}>
             Preliminary — {grade} · {divisionLabel(meta, "A")}
@@ -431,7 +388,8 @@ export function ViewerPage() {
                 <StandingsTable
                   standings={standA_L1}
                   nameById={nameById}
-                  projectionMode={projectionMode}
+                  projectionMode
+                  showFairPlay={fairPlayEnabled}
                 />
               </div>
               <div>
@@ -439,12 +397,18 @@ export function ViewerPage() {
                 <StandingsTable
                   standings={standA_L2}
                   nameById={nameById}
-                  projectionMode={projectionMode}
+                  projectionMode
+                  showFairPlay={fairPlayEnabled}
                 />
               </div>
             </div>
           ) : (
-            <StandingsTable standings={standA} nameById={nameById} projectionMode={projectionMode} />
+            <StandingsTable
+              standings={standA}
+              nameById={nameById}
+              projectionMode
+              showFairPlay={fairPlayEnabled}
+            />
           )}
         </div>
         {!isUnified ? (
@@ -459,7 +423,8 @@ export function ViewerPage() {
                   <StandingsTable
                     standings={standB_L1}
                     nameById={nameById}
-                    projectionMode={projectionMode}
+                    projectionMode
+                    showFairPlay={fairPlayEnabled}
                   />
                 </div>
                 <div>
@@ -467,22 +432,24 @@ export function ViewerPage() {
                   <StandingsTable
                     standings={standB_L2}
                     nameById={nameById}
-                    projectionMode={projectionMode}
+                    projectionMode
+                    showFairPlay={fairPlayEnabled}
                   />
                 </div>
               </div>
             ) : (
-              <StandingsTable standings={standB} nameById={nameById} projectionMode={projectionMode} />
+              <StandingsTable
+                standings={standB}
+                nameById={nameById}
+                projectionMode
+                showFairPlay={fairPlayEnabled}
+              />
             )}
           </div>
         ) : null}
       </section>
 
-      <section
-        className={
-          isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"
-        }
-      >
+      <section className={isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"}>
         {!isUnified && effLeagueCountA === 1 && effLeagueCountB === 1 ? (
           <div className="md:col-span-2">
             <QualifyingScheduleByRound
@@ -492,7 +459,7 @@ export function ViewerPage() {
               matchesA={qualA}
               matchesB={qualB}
               nameById={nameById}
-              projectionMode={projectionMode}
+              projectionMode
             />
           </div>
         ) : effLeagueCountA === 2 ? (
@@ -501,13 +468,13 @@ export function ViewerPage() {
               title={`Schedule — ${grade} · ${divisionLabel(meta, "A")} · League 1`}
               matches={qualA_L1}
               nameById={nameById}
-              projectionMode={projectionMode}
+              projectionMode
             />
             <QualifyingScheduleList
               title={`Schedule — ${grade} · ${divisionLabel(meta, "A")} · League 2`}
               matches={qualA_L2}
               nameById={nameById}
-              projectionMode={projectionMode}
+              projectionMode
             />
           </div>
         ) : (
@@ -515,7 +482,7 @@ export function ViewerPage() {
             title={`Schedule — ${grade} · ${divisionLabel(meta, "A")}`}
             matches={qualA}
             nameById={nameById}
-            projectionMode={projectionMode}
+            projectionMode
           />
         )}
         {!isUnified && !(effLeagueCountA === 1 && effLeagueCountB === 1) ? (
@@ -525,13 +492,13 @@ export function ViewerPage() {
                 title={`Schedule — ${grade} · ${divisionLabel(meta, "B")} · League 1`}
                 matches={qualB_L1}
                 nameById={nameById}
-                projectionMode={projectionMode}
+                projectionMode
               />
               <QualifyingScheduleList
                 title={`Schedule — ${grade} · ${divisionLabel(meta, "B")} · League 2`}
                 matches={qualB_L2}
                 nameById={nameById}
-                projectionMode={projectionMode}
+                projectionMode
               />
             </div>
           ) : (
@@ -539,7 +506,7 @@ export function ViewerPage() {
               title={`Schedule — ${grade} · ${divisionLabel(meta, "B")}`}
               matches={qualB}
               nameById={nameById}
-              projectionMode={projectionMode}
+              projectionMode
             />
           )
         ) : null}
@@ -555,13 +522,7 @@ export function ViewerPage() {
         {isUnified ? (
           <div className="space-y-2">
             {resMetaU?.completedWinnerTeamId ? (
-              <p
-                className={
-                  displayMode
-                    ? "text-base font-medium text-cup-winBright"
-                    : "text-sm font-medium text-cup-win"
-                }
-              >
+              <p className="text-base font-medium text-cup-winBright">
                 Redemption winner:{" "}
                 {nameById.get(resMetaU.completedWinnerTeamId) ??
                   resMetaU.completedWinnerTeamId}
@@ -571,7 +532,7 @@ export function ViewerPage() {
               <BracketRounds
                 matches={resListU}
                 nameById={nameById}
-                projectionMode={projectionMode}
+                projectionMode
                 emptyMessage="No redemption bracket for this grade yet (or a single below-cut team was auto-crowned with no matches)."
                 winnerBannerTitle="Winner"
                 winnerBannerIcon="🪶"
@@ -584,13 +545,7 @@ export function ViewerPage() {
             <div className="min-w-0">
               <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "A")} redemption</h3>
               {resMetaA?.completedWinnerTeamId ? (
-                <p
-                  className={
-                    displayMode
-                      ? "text-base font-medium text-cup-winBright mb-2"
-                      : "text-sm font-medium text-cup-win mb-2"
-                  }
-                >
+                <p className="text-base font-medium text-cup-winBright mb-2">
                   Winner:{" "}
                   {nameById.get(resMetaA.completedWinnerTeamId) ??
                     resMetaA.completedWinnerTeamId}
@@ -600,7 +555,7 @@ export function ViewerPage() {
                 <BracketRounds
                   matches={resListA}
                   nameById={nameById}
-                  projectionMode={projectionMode}
+                  projectionMode
                   emptyMessage="No redemption bracket for this pool yet."
                   winnerBannerTitle="Winner"
                   winnerBannerIcon="🪶"
@@ -611,13 +566,7 @@ export function ViewerPage() {
             <div className="min-w-0">
               <h3 className={h3Bracket}>{grade} · {divisionLabel(meta, "B")} redemption</h3>
               {resMetaB?.completedWinnerTeamId ? (
-                <p
-                  className={
-                    displayMode
-                      ? "text-base font-medium text-cup-winBright mb-2"
-                      : "text-sm font-medium text-cup-win mb-2"
-                  }
-                >
+                <p className="text-base font-medium text-cup-winBright mb-2">
                   Winner:{" "}
                   {nameById.get(resMetaB.completedWinnerTeamId) ??
                     resMetaB.completedWinnerTeamId}
@@ -627,7 +576,7 @@ export function ViewerPage() {
                 <BracketRounds
                   matches={resListB}
                   nameById={nameById}
-                  projectionMode={projectionMode}
+                  projectionMode
                   emptyMessage="No redemption bracket for this pool yet."
                   winnerBannerTitle="Winner"
                   winnerBannerIcon="🪶"
@@ -641,12 +590,24 @@ export function ViewerPage() {
 
       <section>
         <h2 className={`${h2Major} mb-3`}>Finals bracket — {grade}</h2>
+        {japanCupChallengeDisplay ? (
+          <div className="mb-6">
+            <JapanCupChallengeMatchup
+              match={japanCupChallengeDisplay}
+              nameById={nameById}
+              championName={finalsGradeMeta?.japanCupChallenge?.championName}
+              projectionMode
+            />
+          </div>
+        ) : null}
         {isUnified ? (
           <div className="min-w-0 overflow-x-hidden">
             <BracketRounds
               matches={finalsUnified}
               nameById={nameById}
-              projectionMode={projectionMode}
+              projectionMode
+              finalsGradeMeta={finalsGradeMeta}
+              gradeId={grade}
             />
           </div>
         ) : (
@@ -654,46 +615,18 @@ export function ViewerPage() {
             <h3 className={h3Bracket}>
               {grade} · {divisionLabel(meta, "A")} + {divisionLabel(meta, "B")} to grade champion
             </h3>
-            <p className={bodyMutedNarrow}>
-              👑 League champions qualify for Roboccia Japan Cup. Grade champion perk: bring one
-              extra robot to Roboccia Japan Cup.
-            </p>
             <div className="min-w-0 overflow-x-hidden">
               <BracketRounds
                 matches={finalsSplitMerged}
                 nameById={nameById}
-                projectionMode={projectionMode}
+                projectionMode
+                finalsGradeMeta={finalsGradeMeta}
+                gradeId={grade}
               />
             </div>
           </div>
         )}
       </section>
-
-      {kioskMode ? (
-        <p
-          className={
-            displayMode
-              ? "text-center text-sm text-slate-500 pt-4 border-t border-cup-stageBorder"
-              : "text-center text-sm text-cup-muted pt-4 border-t border-cup-line"
-          }
-        >
-          <Link
-            to={{
-              pathname: "/",
-              search: normalViewSearch || undefined,
-            }}
-            className={
-              displayMode
-                ? "text-cup-signal underline hover:text-cup-signalMuted hover:no-underline"
-                : "text-cup-accent underline hover:no-underline"
-            }
-          >
-            Normal view
-          </Link>
-          {" · "}
-          <span className="font-mono text-xs opacity-80">{tournamentId}</span>
-        </p>
-      ) : null}
     </div>
   );
 }

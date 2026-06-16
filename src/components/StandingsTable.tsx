@@ -1,4 +1,5 @@
 import type { StandingRow } from "@/lib/tournament/types";
+import { FairPlayBandBadge } from "@/components/FairPlayBandBadge";
 
 export function StandingsTable({
   standings,
@@ -6,6 +7,7 @@ export function StandingsTable({
   highlightTeamId,
   projector,
   projectionMode,
+  showFairPlay,
 }: {
   standings: StandingRow[];
   nameById: Map<string, string>;
@@ -15,6 +17,8 @@ export function StandingsTable({
   projector?: boolean;
   /** Dark “arena” table skin for live projection (`?display=1`). */
   projectionMode?: boolean;
+  /** Show match pts, fair play, and total columns (within-school). */
+  showFairPlay?: boolean;
 }) {
   const large = Boolean(projectionMode || projector);
   const arena = Boolean(projectionMode);
@@ -55,7 +59,17 @@ export function StandingsTable({
           <tr className={thRow}>
             <th className={cell}>Rank</th>
             <th className={cell}>Team</th>
-            <th className={`${cell} text-right`}>Pts</th>
+            <th className={`${cell} text-right`}>
+              {showFairPlay ? "Match" : "Pts"}
+            </th>
+            {showFairPlay ? (
+              <>
+                <th className={`${cell} text-right`} title="Sum of student Fair Play points">
+                  Fair Play
+                </th>
+                <th className={`${cell} text-right`}>Total</th>
+              </>
+            ) : null}
             <th className={`${cell} text-right`}>W</th>
             <th className={`${cell} text-right`}>D</th>
             <th className={`${cell} text-right`}>L</th>
@@ -86,11 +100,25 @@ export function StandingsTable({
                 </td>
                 <td
                   className={`${cell} text-right font-semibold ${
-                    arena ? "text-cup-signal" : ""
+                    arena && !showFairPlay ? "text-cup-signal" : ""
                   }`}
                 >
                   {s.leaguePoints}
                 </td>
+                {showFairPlay ? (
+                  <>
+                    <td className={`${cell} text-right`}>
+                      <FairPlayBandBadge points={s.fairPlayPoints ?? 15} />
+                    </td>
+                    <td
+                      className={`${cell} text-right font-bold tabular-nums ${
+                        arena ? "text-cup-signal" : "text-cup-ink"
+                      }`}
+                    >
+                      {s.totalScore ?? s.leaguePoints}
+                    </td>
+                  </>
+                ) : null}
                 <td
                   className={`${cell} text-right ${
                     arena ? "text-cup-winBright" : "text-cup-ink"

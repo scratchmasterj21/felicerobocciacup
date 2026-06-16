@@ -29,4 +29,31 @@ describe("rankStandings", () => {
     expect(r[0].teamId).toBe("a");
     expect(r[0].leaguePoints).toBe(6);
   });
+
+  it("ranks by totalScore when fair play is enabled", () => {
+    const teams = ["a", "b"];
+    const matches: QualifyingMatchData[] = [
+      qm({
+        id: "1",
+        teamAId: "a",
+        teamBId: "b",
+        outcome: "DRAW",
+        regulation: {
+          round1: { scoreA: 1, scoreB: 1 },
+          round2: { scoreA: 0, scoreB: 0 },
+        },
+      }),
+    ];
+    const fairPlay = new Map([
+      ["a", 15],
+      ["b", 14],
+    ]);
+    const r = rankStandings(teams, matches, { fairPlayByTeamId: fairPlay });
+    expect(r[0].teamId).toBe("a");
+    expect(r[0].leaguePoints).toBe(1);
+    expect(r[0].fairPlayPoints).toBe(15);
+    expect(r[0].totalScore).toBe(16);
+    expect(r[1].teamId).toBe("b");
+    expect(r[1].totalScore).toBe(15);
+  });
 });

@@ -19,6 +19,24 @@ import type {
 } from "@/lib/tournament/types";
 import { compareFinalByRoundThenScheduleThenSlot } from "@/lib/schedule/matchSort";
 import { rankStandings } from "@/lib/tournament/standings";
+import {
+  subscribeFairPlayIncidents,
+  subscribeFinalsGradeMeta,
+  subscribeStudents,
+} from "@/lib/firebase/fairPlayService";
+import type { StudentRecord } from "@/lib/firebase/tournamentService";
+import {
+  fairPlayCategoryLabel,
+  isFairPlayEnabled,
+  isFairPlayLockedForGrade,
+  japanCupEligibleForStudent,
+  rankStandingsFairPlayOptions,
+  studentsOnTeam,
+  sumFairPlayForTeam,
+} from "@/lib/tournament/fairPlay";
+import type { FairPlayIncident } from "@/lib/tournament/types";
+import { FairPlayBandBadge } from "@/components/FairPlayBandBadge";
+import { formatScheduleTokyo } from "@/lib/schedule/tokyo";
 import { regulationTotals } from "@/lib/tournament/roundRobin";
 import { StandingsTable } from "@/components/StandingsTable";
 import { QualifyingScheduleList } from "@/components/QualifyingScheduleList";
@@ -28,6 +46,7 @@ import {
   schoolShortByIdFromRecord,
 } from "@/lib/tournament/teamDisplay";
 import type { LeagueId } from "@/lib/tournament/leagueSplit";
+import { buildLiveViewHref } from "@/lib/viewerDisplay";
 import {
   effectiveLeagueCount,
   partitionTeamsIntoLeaguesFromSaved,
@@ -101,9 +120,17 @@ export function TeamViewerPage() {
         name: string;
         code?: string;
         schoolId?: string;
+        fairPlayPoints?: number;
       }
     >
   | null>(null);
+  const [fairPlayIncidents, setFairPlayIncidents] = useState<
+    Record<string, FairPlayIncident> | null
+  >(null);
+  const [students, setStudents] = useState<Record<string, StudentRecord> | null>(null);
+  const [finalsGradeMeta, setFinalsGradeMeta] = useState<{ generatedAt?: number } | null>(
+    null
+  );
   const [schools, setSchools] = useState<
     Record<string, { name: string; shortLabel?: string }> | null
   >(null);
@@ -141,6 +168,29 @@ export function TeamViewerPage() {
 
   const isUnified =
     meta?.qualifyingMode === "unified" || meta?.tournamentKind === "interSchool";
+  const fairPlayEnabled = isFairPlayEnabled(meta);
+
+  useEffect(() => {
+    if (!tournamentId || !fairPlayEnabled) {
+      setFairPlayIncidents(null);
+      setStudents(null);
+      return;
+    }
+    const u1 = subscribeFairPlayIncidents(tournamentId, setFairPlayIncidents);
+    const u2 = subscribeStudents(tournamentId, setStudents);
+    return () => {
+      u1();
+      u2();
+    };
+  }, [tournamentId, fairPlayEnabled]);
+
+  useEffect(() => {
+    if (!tournamentId || !grade || !fairPlayEnabled) {
+      setFinalsGradeMeta(null);
+      return;
+    }
+    return subscribeFinalsGradeMeta(tournamentId, grade, setFinalsGradeMeta);
+  }, [tournamentId, grade, fairPlayEnabled]);
 
   useEffect(() => {
     if (!tournamentId || !grade) return;
@@ -249,18 +299,49 @@ export function TeamViewerPage() {
     [qualPoolMatches]
   );
 
+  const fpOpts = (ids: string[]) =>
+    rankStandingsFairPlayOptions(students, ids, fairPlayEnabled, teams);
+
+  const gradeLocked = isFairPlayLockedForGrade(finalsGradeMeta);
+  const teamRoster = useMemo(
+    () => studentsOnTeam(students, teamId),
+    [students, teamId]
+  );
+  const teamFairPlaySum = useMemo(
+    () => sumFairPlayForTeam(students, teamId),
+    [students, teamId]
+  );
+
   const standSingle = useMemo(
-    () => rankStandings(poolTeamIds, qualPoolMatches),
-    [poolTeamIds, qualPoolMatches]
+    () => rankStandings(poolTeamIds, qualPoolMatches, fpOpts(poolTeamIds)),
+    [poolTeamIds, qualPoolMatches, teams, students, fairPlayEnabled]
   );
   const standL1 = useMemo(
-    () => rankStandings(leagueBuckets.L1, qualL1),
-    [leagueBuckets.L1, qualL1]
+    () => rankStandings(leagueBuckets.L1, qualL1, fpOpts(leagueBuckets.L1)),
+    [leagueBuckets.L1, qualL1, teams, students, fairPlayEnabled]
   );
   const standL2 = useMemo(
-    () => rankStandings(leagueBuckets.L2, qualL2),
-    [leagueBuckets.L2, qualL2]
+    () => rankStandings(leagueBuckets.L2, qualL2, fpOpts(leagueBuckets.L2)),
+    [leagueBuckets.L2, qualL2, teams, students, fairPlayEnabled]
   );
+
+  const myStanding = useMemo(() => {
+    const rows =
+      effLeagueCount === 2 && teamLeague === "L2"
+        ? standL2
+        : effLeagueCount === 2 && teamLeague === "L1"
+          ? standL1
+          : standSingle;
+    return rows.find((r) => r.teamId === teamId);
+  }, [effLeagueCount, teamLeague, standL1, standL2, standSingle, teamId]);
+
+  const recentIncidents = useMemo(() => {
+    if (!fairPlayEnabled || !fairPlayIncidents) return [];
+    return Object.values(fairPlayIncidents)
+      .filter((i) => i.teamId === teamId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 3);
+  }, [fairPlayEnabled, fairPlayIncidents, teamId]);
 
   const finalList = useMemo(() => Object.values(fMatches ?? {}), [fMatches]);
   const finalsForTeam = useMemo(() => {
@@ -345,7 +426,7 @@ export function TeamViewerPage() {
 
   const displayName = nameById.get(teamId) ?? team.name;
   const poolTitle = `${team.gradeId} · ${divisionLabel(meta, team.divisionId)}`;
-  const liveHref = `/?tournamentId=${encodeURIComponent(tournamentId)}&grade=${encodeURIComponent(team.gradeId)}`;
+  const liveHref = buildLiveViewHref(tournamentId, team.gradeId);
 
   return (
     <div className={`${shell} space-y-8`}>
@@ -380,6 +461,110 @@ export function TeamViewerPage() {
         </div>
       </header>
 
+      {fairPlayEnabled && myStanding ? (
+        <section className={panel}>
+          <h2 className={sectionTitle}>Preliminary score</h2>
+          {gradeLocked ? (
+            <p className="text-xs text-slate-400 mb-4">
+              Fair Play locked — Japan Cup eligibility finalized for this grade.
+            </p>
+          ) : (
+            <p className="text-xs text-slate-400 mb-4">
+              Preliminary only. Team Fair Play = sum of student shares (15 split across roster).
+            </p>
+          )}
+          <dl className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <dt className="text-xs uppercase tracking-widest text-slate-400 mb-1">Match pts</dt>
+              <dd className="text-2xl font-bold text-slate-50 tabular-nums">
+                {myStanding.leaguePoints}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-widest text-slate-400 mb-1">Fair Play</dt>
+              <dd className="flex justify-center">
+                <FairPlayBandBadge points={teamFairPlaySum} />
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-widest text-cup-signalMuted mb-1">Total</dt>
+              <dd className="text-2xl font-bold text-cup-signal tabular-nums">
+                {myStanding.totalScore ?? myStanding.leaguePoints}
+              </dd>
+            </div>
+          </dl>
+          {teamRoster.length > 0 ? (
+            <div className="mt-5 border-t border-cup-stageBorder pt-4">
+              <h3 className="text-xs uppercase tracking-widest text-slate-400 mb-2">Roster</h3>
+              <ul className="space-y-2">
+                {teamRoster.map((s) => {
+                  const rec = students?.[s.id];
+                  const eligible = rec
+                    ? japanCupEligibleForStudent(rec, gradeLocked)
+                    : false;
+                  return (
+                    <li
+                      key={s.id}
+                      className="flex flex-wrap justify-between gap-2 text-sm text-slate-300 rounded-lg border border-cup-stageBorder bg-black/20 px-3 py-2"
+                    >
+                      <span>{rec?.name ?? s.id}</span>
+                      <span className="flex items-center gap-3">
+                        {typeof s.fairPlayInitialShare === "number" ? (
+                          <FairPlayBandBadge
+                            points={s.fairPlayPoints ?? 0}
+                            initialShare={s.fairPlayInitialShare}
+                          />
+                        ) : (
+                          <span className="text-slate-500 text-xs">not init</span>
+                        )}
+                        {typeof s.fairPlayInitialShare === "number" ? (
+                          <span
+                            className={
+                              eligible ? "text-cup-winBright text-xs" : "text-red-400 text-xs"
+                            }
+                          >
+                            {eligible ? "Japan Cup OK" : "Japan Cup —"}
+                          </span>
+                        ) : null}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+          {recentIncidents.length > 0 ? (
+            <div className="mt-5 border-t border-cup-stageBorder pt-4">
+              <h3 className="text-xs uppercase tracking-widest text-slate-400 mb-2">
+                Recent Fair Play
+              </h3>
+              <ul className="space-y-2">
+                {recentIncidents.map((inc) => (
+                  <li
+                    key={inc.id}
+                    className="text-sm text-slate-300 rounded-lg border border-cup-stageBorder bg-black/20 px-3 py-2"
+                  >
+                    <span className="text-cup-signalMuted tabular-nums">
+                      {formatScheduleTokyo(inc.createdAt)}
+                    </span>
+                    {" · "}
+                    {fairPlayCategoryLabel(inc.category)}
+                    {inc.studentName && inc.studentName !== "—"
+                      ? ` · ${inc.studentName}`
+                      : ""}
+                    {" · "}
+                    <span className={inc.delta < 0 ? "text-cup-lossBright" : "text-cup-winBright"}>
+                      {inc.delta > 0 ? "+" : ""}
+                      {inc.delta}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className={panel}>
         <QualifyingScheduleList
           title={`${poolTitle} · Your preliminary matches`}
@@ -399,6 +584,7 @@ export function TeamViewerPage() {
                 nameById={nameById}
                 highlightTeamId={teamId}
                 projectionMode
+                showFairPlay={fairPlayEnabled}
               />
             ) : (
               <StandingsTable
@@ -406,6 +592,7 @@ export function TeamViewerPage() {
                 nameById={nameById}
                 highlightTeamId={teamId}
                 projectionMode
+                showFairPlay={fairPlayEnabled}
               />
             )}
           </div>
@@ -415,6 +602,7 @@ export function TeamViewerPage() {
             nameById={nameById}
             highlightTeamId={teamId}
             projectionMode
+            showFairPlay={fairPlayEnabled}
           />
         )}
       </section>

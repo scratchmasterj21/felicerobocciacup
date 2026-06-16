@@ -17,6 +17,10 @@ export const paths = {
     `tournaments/${tournamentId}/students`,
   student: (tournamentId: string, studentId: string) =>
     `tournaments/${tournamentId}/students/${studentId}`,
+  fairPlayIncidents: (tournamentId: string) =>
+    `tournaments/${tournamentId}/fairPlayIncidents`,
+  fairPlayIncident: (tournamentId: string, incidentId: string) =>
+    `tournaments/${tournamentId}/fairPlayIncidents/${incidentId}`,
   qualifyingMatches: (tournamentId: string) =>
     `tournaments/${tournamentId}/qualifying/matches`,
   qualifyingMatch: (tournamentId: string, matchId: string) =>

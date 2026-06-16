@@ -1,6 +1,6 @@
 import type { QualifyingMatchData } from "./types";
 import { qualificationCountForDivision } from "./qualification";
-import { rankStandings } from "./standings";
+import { rankStandings, type RankStandingsOptions } from "./standings";
 import { mergedStandingsForDivision } from "./gradeSeeds";
 import type { LeagueId } from "./leagueSplit";
 import { effectiveLeagueCount } from "./leagueSplit";
@@ -14,7 +14,8 @@ export function belowCutTeamIdsForDivision(
   teamIds: string[],
   allQualifyingMatches: QualifyingMatchData[],
   requestedLeagueCount: 1 | 2,
-  leagueAssignment?: Record<string, LeagueId> | undefined
+  leagueAssignment?: Record<string, LeagueId> | undefined,
+  standingsOptions?: RankStandingsOptions
 ): string[] {
   const k = qualificationCountForDivision(teamIds.length);
   const leagueCount = effectiveLeagueCount(requestedLeagueCount, teamIds.length);
@@ -22,7 +23,7 @@ export function belowCutTeamIdsForDivision(
     (m) => m.gradeId === gradeId && m.divisionId === divisionId
   );
   if (leagueCount === 1) {
-    const standings = rankStandings(teamIds, matchesInDivision);
+    const standings = rankStandings(teamIds, matchesInDivision, standingsOptions);
     const sorted = [...standings].sort((a, b) => a.rank - b.rank);
     return sorted.slice(k).map((r) => r.teamId);
   }
@@ -32,7 +33,8 @@ export function belowCutTeamIdsForDivision(
     teamIds,
     allQualifyingMatches,
     requestedLeagueCount,
-    leagueAssignment
+    leagueAssignment,
+    standingsOptions
   );
   return merged.slice(k).map((r) => r.teamId);
 }
@@ -40,12 +42,13 @@ export function belowCutTeamIdsForDivision(
 export function belowCutTeamIdsForUnified(
   gradeId: string,
   teamIds: string[],
-  allQualifyingMatches: QualifyingMatchData[]
+  allQualifyingMatches: QualifyingMatchData[],
+  standingsOptions?: RankStandingsOptions
 ): string[] {
   const matches = allQualifyingMatches.filter(
     (m) => m.gradeId === gradeId && m.divisionId === "A"
   );
-  const standings = rankStandings(teamIds, matches);
+  const standings = rankStandings(teamIds, matches, standingsOptions);
   const k = qualificationCountForDivision(teamIds.length);
   const sorted = [...standings].sort((a, b) => a.rank - b.rank);
   return sorted.slice(k).map((r) => r.teamId);

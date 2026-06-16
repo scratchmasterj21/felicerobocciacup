@@ -58,6 +58,29 @@ export interface StandingRow {
   goalsAgainst: number;
   goalDiff: number;
   leaguePoints: number;
+  /** Present when Fair Play is enabled for the tournament. */
+  fairPlayPoints?: number;
+  /** leaguePoints + fairPlayPoints when Fair Play is enabled. */
+  totalScore?: number;
+}
+
+export type FairPlayIncidentKind = "incident" | "adjustment";
+
+export interface FairPlayIncident {
+  id: string;
+  teamId: string;
+  studentId: string;
+  studentName: string;
+  teacherName: string;
+  category: string;
+  /** Positive magnitude for display (deduction amount). */
+  deduction: number;
+  /** Net change applied to team (negative deduct, positive credit). */
+  delta: number;
+  notes?: string;
+  createdAt: number;
+  createdByUid?: string;
+  kind: FairPlayIncidentKind;
 }
 
 export type Closer = "A" | "B" | "TIE";
@@ -96,7 +119,7 @@ export interface FinalMatchData {
   /** Finals bracket bucket within a grade: A, B, or unified. */
   bracketGroup?: "A" | "B" | "U";
   /** When set, this match uses resurrection scoring (3 min regulation path). */
-  matchKind?: "resurrection";
+  matchKind?: "resurrection" | "japanCupChallenge";
   roundIndex: number;
   slotInRound: number;
   teamAId?: string;

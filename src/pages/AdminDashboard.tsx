@@ -1,11 +1,12 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { useTournamentId } from "@/hooks/useTournamentId";
 import { useAuth } from "@/hooks/useAuth";
 import { getFirebaseAuth } from "@/lib/firebase/config";
 import {
   addStudent,
+  bulkAddStudents,
   completeQualifyingMatch,
   createTournament,
   deleteTournamentMeta,
@@ -41,7 +42,9 @@ import {
   submitResurrectionRegulation,
   submitResurrectionExtraEight,
   submitResurrectionSuddenDeathCloser,
+  setJapanCupChallengeEnabled,
 } from "@/lib/firebase/tournamentService";
+import type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
 import type {
   FinalMatchData,
   MatchSchedule,
@@ -67,12 +70,41 @@ import {
 } from "@/lib/tournament/resurrection";
 import { regulationTotals } from "@/lib/tournament/roundRobin";
 import { StandingsTable } from "@/components/StandingsTable";
+import { FairPlayAdminSection } from "@/components/FairPlayAdminSection";
 import {
   MatchScoreGrid,
   type GridFilter,
   type MatchScoreGridRow,
 } from "@/components/MatchScoreGrid";
 import { rankStandings } from "@/lib/tournament/standings";
+import {
+  isFairPlayEnabled,
+  rankStandingsFairPlayOptions,
+} from "@/lib/tournament/fairPlay";
+import {
+  subscribeFairPlayIncidents,
+  subscribeFinalsGradeMeta,
+  subscribeStudents,
+} from "@/lib/firebase/fairPlayService";
+import type { FairPlayIncident } from "@/lib/tournament/types";
+import type {
+  StudentRecord,
+  TeamRecord,
+  TournamentMeta,
+} from "@/lib/firebase/tournamentService";
+import {
+  describeTeamMatch,
+  findDuplicateTeamCodes,
+  listTeamCodes,
+  parseStudentCsvPaste,
+  teamCodeById,
+} from "@/lib/tournament/teamResolve";
+import {
+  excludeJapanCupChampion,
+  getJapanCupChampionTeamId,
+  gradeChampionshipComplete,
+  isRegularPoolTeam,
+} from "@/lib/tournament/japanCupChallenge";
 import { divisionLabel } from "@/lib/tournament/divisionLabels";
 import {
   buildTeamDisplayNameById,
@@ -84,6 +116,12 @@ import {
   shuffleTeamsIntoLeagues,
 } from "@/lib/tournament/leagueSplit";
 import type { LeagueId } from "@/lib/tournament/leagueSplit";
+import { MatchSectionToolbar } from "@/components/MatchSectionToolbar";
+import {
+  JapanCupChallengeScoring,
+  JapanCupConfigPanel,
+} from "@/components/JapanCupFinalsBlock";
+import { buildLiveViewHref } from "@/lib/viewerDisplay";
 
 const GRADES = ["G1", "G2", "G3", "G4", "G5", "G6"] as const;
 
@@ -92,6 +130,7 @@ const SHOW_STUDENTS_SECTION = import.meta.env.VITE_SHOW_STUDENTS === "true";
 
 export function AdminDashboard() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [tournamentId, setTournamentId] = useTournamentId();
   const [meta, setMeta] = useState<{
     name: string;
@@ -115,17 +154,26 @@ export function AdminDashboard() {
         name: string;
         code?: string;
         schoolId?: string;
+        fairPlayPoints?: number;
       }
     >
   | null>(null);
+  const [students, setStudents] = useState<Record<string, StudentRecord> | null>(null);
+  const [fairPlayIncidents, setFairPlayIncidents] = useState<
+    Record<string, FairPlayIncident> | null
+  >(null);
   const [schools, setSchools] = useState<
     Record<string, { name: string; shortLabel?: string }> | null
   >(null);
   const [qMatches, setQMatches] = useState<Record<string, QualifyingMatchData> | null>(null);
   const [grade, setGrade] = useState("G1");
-  /** Grade passed to the public projector URL (`?grade=`); independent of admin working grade. */
-  const [projectorGrade, setProjectorGrade] = useState("G1");
+  const [liveUrlCopied, setLiveUrlCopied] = useState(false);
   const [fMatches, setFMatches] = useState<Record<string, FinalMatchData> | null>(null);
+  const [finalsGradeMeta, setFinalsGradeMeta] = useState<FinalsGradeMeta | null>(null);
+  const [jcEnabled, setJcEnabled] = useState(false);
+  const [jcChampionName, setJcChampionName] = useState("");
+  const [jcBusy, setJcBusy] = useState(false);
+  const [jcStatus, setJcStatus] = useState<string | null>(null);
 
   const [newTournamentName, setNewTournamentName] = useState("Felice Roboccia Cup 2026");
   const [newSchoolYear, setNewSchoolYear] = useState(2026);
@@ -178,26 +226,22 @@ export function AdminDashboard() {
   const [resFilter, setResFilter] = useState<GridFilter>("unfinished");
   const [finalsFilter, setFinalsFilter] = useState<GridFilter>("unfinished");
 
-  const liveViewHref = useMemo(() => {
+  const liveViewHref = useMemo(
+    () => buildLiveViewHref(tournamentId, grade),
+    [tournamentId, grade]
+  );
+
+  const fairPlayTeacherHref = useMemo(() => {
     const p = new URLSearchParams();
     if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
     const q = p.toString();
-    return q ? `/?${q}` : "/";
+    return q ? `/fair-play?${q}` : "/fair-play";
   }, [tournamentId]);
-
-  const projectorLiveHref = useMemo(() => {
-    const p = new URLSearchParams();
-    p.set("display", "1");
-    p.set("kiosk", "1");
-    if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
-    p.set("grade", projectorGrade);
-    return `/?${p.toString()}`;
-  }, [tournamentId, projectorGrade]);
 
   useEffect(() => {
-    setProjectorGrade(grade);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- align projector pick only when tournament ID changes
-  }, [tournamentId]);
+    const tid = searchParams.get("tournamentId")?.trim();
+    if (tid) setTournamentId(tid);
+  }, [searchParams, setTournamentId]);
 
   useEffect(() => {
     return subscribeTournamentMeta(tournamentId, setMeta);
@@ -220,11 +264,30 @@ export function AdminDashboard() {
   }, [meta, grade]);
 
   const isInterSchoolTournament = meta?.tournamentKind === "interSchool";
+  const fairPlayEnabled = isFairPlayEnabled(meta);
   const isUnified =
     meta?.qualifyingMode === "unified" || isInterSchoolTournament;
+  const fpOpts = (teamIds: string[]) =>
+    rankStandingsFairPlayOptions(students, teamIds, fairPlayEnabled, teams);
   useEffect(() => {
     return subscribeTeams(tournamentId, setTeams);
   }, [tournamentId]);
+  useEffect(() => {
+    if (!fairPlayEnabled && !SHOW_STUDENTS_SECTION) {
+      setStudents(null);
+      setFairPlayIncidents(null);
+      return;
+    }
+    const uStudents = subscribeStudents(tournamentId, setStudents);
+    if (!fairPlayEnabled) {
+      return () => uStudents();
+    }
+    const u2 = subscribeFairPlayIncidents(tournamentId, setFairPlayIncidents);
+    return () => {
+      uStudents();
+      u2();
+    };
+  }, [tournamentId, fairPlayEnabled]);
   useEffect(() => {
     return subscribeSchools(tournamentId, setSchools);
   }, [tournamentId]);
@@ -234,6 +297,16 @@ export function AdminDashboard() {
   useEffect(() => {
     return subscribeFinalMatches(tournamentId, grade, setFMatches);
   }, [tournamentId, grade]);
+  useEffect(() => {
+    return subscribeFinalsGradeMeta(tournamentId, grade, setFinalsGradeMeta);
+  }, [tournamentId, grade]);
+  useEffect(() => {
+    setJcEnabled(finalsGradeMeta?.japanCupChallenge?.enabled ?? false);
+    setJcChampionName(finalsGradeMeta?.japanCupChallenge?.championName ?? "");
+  }, [
+    finalsGradeMeta?.japanCupChallenge?.enabled,
+    finalsGradeMeta?.japanCupChallenge?.championName,
+  ]);
   useEffect(() => {
     if (isUnified) {
       setResMetaA(null);
@@ -283,6 +356,12 @@ export function AdminDashboard() {
     return Object.entries(teams).map(([id, t]) => ({ id, ...t }));
   }, [teams]);
 
+  /** Regular pool teams only — excludes Japan Cup champion-only registration. */
+  const poolTeamList = useMemo(
+    () => teamList.filter((t) => isRegularPoolTeam(t)),
+    [teamList]
+  );
+
   const schoolShortById = useMemo(
     () => schoolShortByIdFromRecord(schools),
     [schools]
@@ -294,21 +373,30 @@ export function AdminDashboard() {
   );
 
   const teamsInGradeDiv = (g: string, d: "A" | "B") =>
-    teamList.filter((t) => t.gradeId === g && t.divisionId === d).map((t) => t.id);
+    poolTeamList.filter((t) => t.gradeId === g && t.divisionId === d).map((t) => t.id);
+
+  const jcChampionTeamId = useMemo(
+    () => getJapanCupChampionTeamId(finalsGradeMeta, grade),
+    [finalsGradeMeta, grade]
+  );
+
+  /** Teams eligible for prelim / finals / redemption (excludes Japan Cup champion-only team). */
+  const teamsForBracket = (g: string, d: "A" | "B") =>
+    excludeJapanCupChampion(teamsInGradeDiv(g, d), jcChampionTeamId);
 
   const teamsRowsFor = (d: "A" | "B") =>
-    teamList.filter((t) => t.gradeId === grade && t.divisionId === d);
+    poolTeamList.filter((t) => t.gradeId === grade && t.divisionId === d);
 
   const mixedSchoolsInPool = useMemo(() => {
     const check = (d: "A" | "B") => {
-      const ids = teamList
+      const ids = poolTeamList
         .filter((t) => t.gradeId === grade && t.divisionId === d)
         .map((t) => t.schoolId)
         .filter((x): x is string => Boolean(x));
       return new Set(ids).size > 1;
     };
     return { A: check("A"), B: check("B") };
-  }, [teamList, grade]);
+  }, [poolTeamList, grade]);
 
   const matchesForDiv = (d: "A" | "B") =>
     Object.values(qMatches ?? {}).filter(
@@ -318,9 +406,9 @@ export function AdminDashboard() {
   const requestedLeagueCountFor = (d: "A" | "B"): 1 | 2 =>
     d === "A" ? leagueCountA : leagueCountB;
   const effectiveLeagueCountFor = (d: "A" | "B"): 1 | 2 =>
-    effectiveLeagueCount(requestedLeagueCountFor(d), teamsInGradeDiv(grade, d).length);
+    effectiveLeagueCount(requestedLeagueCountFor(d), teamsForBracket(grade, d).length);
   const leagueTeamsFor = (d: "A" | "B"): { L1: string[]; L2: string[] } => {
-    const ids = teamsInGradeDiv(grade, d);
+    const ids = teamsForBracket(grade, d);
     if (effectiveLeagueCountFor(d) === 1) return { L1: ids, L2: [] };
     return partitionTeamsIntoLeaguesFromSaved(
       ids,
@@ -331,39 +419,59 @@ export function AdminDashboard() {
     matchesForDiv(d).filter((m) => (m.leagueId ?? "L1") === leagueId);
 
   const standA = useMemo(() => {
-    const ids = teamList
+    const ids = poolTeamList
       .filter((t) => t.gradeId === grade && t.divisionId === "A")
       .map((t) => t.id);
     const mq = Object.values(qMatches ?? {}).filter(
       (m) => m.gradeId === grade && m.divisionId === "A"
     );
-    return rankStandings(ids, mq);
-  }, [teamList, qMatches, grade]);
+    return rankStandings(ids, mq, fpOpts(ids));
+  }, [poolTeamList, qMatches, grade, teams, students, fairPlayEnabled]);
 
   const standB = useMemo(() => {
-    const ids = teamList
+    const ids = poolTeamList
       .filter((t) => t.gradeId === grade && t.divisionId === "B")
       .map((t) => t.id);
     const mq = Object.values(qMatches ?? {}).filter(
       (m) => m.gradeId === grade && m.divisionId === "B"
     );
-    return rankStandings(ids, mq);
-  }, [teamList, qMatches, grade]);
+    return rankStandings(ids, mq, fpOpts(ids));
+  }, [poolTeamList, qMatches, grade, teams, students, fairPlayEnabled]);
   const standA_L1 = useMemo(
-    () => rankStandings(leagueTeamsFor("A").L1, matchesForDivLeague("A", "L1")),
-    [teamList, qMatches, grade, leagueCountA, meta]
+    () =>
+      rankStandings(
+        leagueTeamsFor("A").L1,
+        matchesForDivLeague("A", "L1"),
+        fpOpts(leagueTeamsFor("A").L1)
+      ),
+    [poolTeamList, qMatches, grade, leagueCountA, meta, teams, students, fairPlayEnabled]
   );
   const standA_L2 = useMemo(
-    () => rankStandings(leagueTeamsFor("A").L2, matchesForDivLeague("A", "L2")),
-    [teamList, qMatches, grade, leagueCountA, meta]
+    () =>
+      rankStandings(
+        leagueTeamsFor("A").L2,
+        matchesForDivLeague("A", "L2"),
+        fpOpts(leagueTeamsFor("A").L2)
+      ),
+    [poolTeamList, qMatches, grade, leagueCountA, meta, teams, students, fairPlayEnabled]
   );
   const standB_L1 = useMemo(
-    () => rankStandings(leagueTeamsFor("B").L1, matchesForDivLeague("B", "L1")),
-    [teamList, qMatches, grade, leagueCountB, meta]
+    () =>
+      rankStandings(
+        leagueTeamsFor("B").L1,
+        matchesForDivLeague("B", "L1"),
+        fpOpts(leagueTeamsFor("B").L1)
+      ),
+    [poolTeamList, qMatches, grade, leagueCountB, meta, teams, students, fairPlayEnabled]
   );
   const standB_L2 = useMemo(
-    () => rankStandings(leagueTeamsFor("B").L2, matchesForDivLeague("B", "L2")),
-    [teamList, qMatches, grade, leagueCountB, meta]
+    () =>
+      rankStandings(
+        leagueTeamsFor("B").L2,
+        matchesForDivLeague("B", "L2"),
+        fpOpts(leagueTeamsFor("B").L2)
+      ),
+    [poolTeamList, qMatches, grade, leagueCountB, meta, teams, students, fairPlayEnabled]
   );
   const finalsAll = useMemo(() => Object.values(fMatches ?? {}), [fMatches]);
   const finalsA = useMemo(
@@ -378,8 +486,37 @@ export function AdminDashboard() {
     [finalsAll]
   );
   const finalsUnified = useMemo(
-    () => finalsAll.filter((m) => m.bracketGroup === "U" || m.bracketGroup == null),
+    () =>
+      finalsAll.filter(
+        (m) =>
+          (m.bracketGroup === "U" || m.bracketGroup == null) &&
+          m.matchKind !== "japanCupChallenge"
+      ),
     [finalsAll]
+  );
+  const finalsJapanCupChallenge = useMemo(
+    () => finalsAll.filter((m) => m.matchKind === "japanCupChallenge"),
+    [finalsAll]
+  );
+  const gradeFinalComplete = useMemo(
+    () => gradeChampionshipComplete(finalsAll),
+    [finalsAll]
+  );
+  const jcChallengeHasProgress = useMemo(
+    () =>
+      finalsJapanCupChallenge.some(
+        (m) =>
+          m.status === "COMPLETED" ||
+          m.status === "IN_PROGRESS" ||
+          Boolean(m.regulation || m.extra8min || m.suddenDeath)
+      ),
+    [finalsJapanCupChallenge]
+  );
+  const jcExistingDataWarning = useMemo(
+    () =>
+      Boolean(finalsGradeMeta?.generatedAt) ||
+      Object.values(qMatches ?? {}).some((m) => m.gradeId === grade),
+    [finalsGradeMeta, qMatches, grade]
   );
 
   const belowCutA = useMemo(
@@ -387,33 +524,36 @@ export function AdminDashboard() {
       belowCutTeamIdsForDivision(
         grade,
         "A",
-        teamsInGradeDiv(grade, "A"),
+        teamsForBracket(grade, "A"),
         Object.values(qMatches ?? {}),
         effectiveLeagueCountFor("A"),
-        getQualifyingLeagueAssignment(meta, grade, "A")
+        getQualifyingLeagueAssignment(meta, grade, "A"),
+        fpOpts(teamsForBracket(grade, "A"))
       ),
-    [grade, qMatches, leagueCountA, teamList, meta]
+    [grade, qMatches, leagueCountA, poolTeamList, meta, teams, students, fairPlayEnabled]
   );
   const belowCutB = useMemo(
     () =>
       belowCutTeamIdsForDivision(
         grade,
         "B",
-        teamsInGradeDiv(grade, "B"),
+        teamsForBracket(grade, "B"),
         Object.values(qMatches ?? {}),
         effectiveLeagueCountFor("B"),
-        getQualifyingLeagueAssignment(meta, grade, "B")
+        getQualifyingLeagueAssignment(meta, grade, "B"),
+        fpOpts(teamsForBracket(grade, "B"))
       ),
-    [grade, qMatches, leagueCountB, teamList, meta]
+    [grade, qMatches, leagueCountB, poolTeamList, meta, teams, students, fairPlayEnabled]
   );
   const belowCutU = useMemo(
     () =>
       belowCutTeamIdsForUnified(
         grade,
-        teamsInGradeDiv(grade, "A"),
-        Object.values(qMatches ?? {})
+        teamsForBracket(grade, "A"),
+        Object.values(qMatches ?? {}),
+        fpOpts(teamsForBracket(grade, "A"))
       ),
-    [grade, qMatches, teamList]
+    [grade, qMatches, poolTeamList, teams, students, fairPlayEnabled]
   );
 
   function unfinishedFirst<T extends { status: string }>(arr: T[]): T[] {
@@ -561,8 +701,8 @@ export function AdminDashboard() {
           status: "pending",
           statusText: "Tie: enter extra",
           fields: [
-            { key: "sA", label: "Ex A", value: m.extra8min?.round.scoreA ?? 0 },
-            { key: "sB", label: "Ex B", value: m.extra8min?.round.scoreB ?? 0 },
+            { key: "sA", label: "Ex A", value: m.extra8min?.round?.scoreA ?? 0 },
+            { key: "sB", label: "Ex B", value: m.extra8min?.round?.scoreB ?? 0 },
           ],
         };
       }
@@ -650,8 +790,8 @@ export function AdminDashboard() {
           status: "pending",
           statusText: "Tie: enter extra",
           fields: [
-            { key: "exA", label: "Ex A", value: m.extra8min?.round.scoreA ?? 0 },
-            { key: "exB", label: "Ex B", value: m.extra8min?.round.scoreB ?? 0 },
+            { key: "exA", label: "Ex A", value: m.extra8min?.round?.scoreA ?? 0 },
+            { key: "exB", label: "Ex B", value: m.extra8min?.round?.scoreB ?? 0 },
           ],
         };
       }
@@ -749,6 +889,18 @@ export function AdminDashboard() {
     e.preventDefault();
     const n = name.trim();
     if (!n) return;
+    const c = code.trim();
+    if (c && teams) {
+      const dup = Object.entries(teams).find(
+        ([, t]) => t.code?.trim().toLowerCase() === c.toLowerCase()
+      );
+      if (dup) {
+        window.alert(
+          `Code "${c}" is already used by ${describeTeamMatch(dup[0], teams)}. Each team needs a unique code.`
+        );
+        return;
+      }
+    }
     const sid =
       divisionId === "A" ? teamSchoolIdA.trim() : teamSchoolIdB.trim();
     await pushTeam(tournamentId, {
@@ -806,9 +958,12 @@ export function AdminDashboard() {
   }
 
   async function onClearFinalsBracket() {
+    const jcNote = finalsGradeMeta?.japanCupChallenge?.enabled
+      ? " Japan Cup challenge settings and the defending champion team will be kept."
+      : "";
     if (
       !window.confirm(
-        `Delete the entire ${grade} finals bracket and meta? You can regenerate from Preview seeds when ready.`
+        `Delete all ${grade} finals matches? Bracket seeds and generatedAt will be cleared.${jcNote} You can regenerate from Preview seeds when ready.`
       )
     ) {
       return;
@@ -817,12 +972,23 @@ export function AdminDashboard() {
     setSeedPreview(null);
   }
 
+  async function onCopyLiveViewUrl() {
+    try {
+      const url = `${window.location.origin}${liveViewHref}`;
+      await navigator.clipboard.writeText(url);
+      setLiveUrlCopied(true);
+      window.setTimeout(() => setLiveUrlCopied(false), 2000);
+    } catch {
+      window.alert("Could not copy URL.");
+    }
+  }
+
   async function onSaveDivisionLeagueCount(divisionId: "A" | "B") {
     const requested = requestedLeagueCountFor(divisionId);
     await updateDivisionLeagueCount(tournamentId, grade, divisionId, requested);
     if (
       requested === 2 &&
-      teamsInGradeDiv(grade, divisionId).length < 4
+      teamsForBracket(grade, divisionId).length < 4
     ) {
       window.alert(
         `Saved 2-league mode for ${grade}${divisionId}. It will auto-fallback to 1 league until at least 4 teams are in this division.`
@@ -833,7 +999,7 @@ export function AdminDashboard() {
   }
 
   async function generateRoundRobinForDivision(divisionId: "A" | "B") {
-    const ids = teamsInGradeDiv(grade, divisionId);
+    const ids = teamsForBracket(grade, divisionId);
     if (ids.length < 2) {
       window.alert(`Need at least 2 teams in ${grade}${divisionId} to generate a round-robin.`);
       return;
@@ -880,7 +1046,7 @@ export function AdminDashboard() {
   }
 
   async function onRandomizeLeagueSplit(divisionId: "A" | "B") {
-    const ids = teamsInGradeDiv(grade, divisionId);
+    const ids = teamsForBracket(grade, divisionId);
     if (effectiveLeagueCountFor(divisionId) !== 2 || ids.length < 4) {
       window.alert("Need 2-league mode (saved) and at least 4 teams in this pool.");
       return;
@@ -908,25 +1074,28 @@ export function AdminDashboard() {
     const seeds = isUnified
       ? computeSeedsForGradeUnified(
           grade,
-          teamsInGradeDiv(grade, "A"),
-          allMatches
+          teamsForBracket(grade, "A"),
+          allMatches,
+          fpOpts(teamsForBracket(grade, "A"))
         ).seeds
       : {
           A: computeSeedsForGradeDivision(
             grade,
             "A",
-            teamsInGradeDiv(grade, "A"),
+            teamsForBracket(grade, "A"),
             allMatches,
             effectiveLeagueCountFor("A"),
-            getQualifyingLeagueAssignment(meta, grade, "A")
+            getQualifyingLeagueAssignment(meta, grade, "A"),
+            fpOpts(teamsForBracket(grade, "A"))
           ).seeds,
           B: computeSeedsForGradeDivision(
             grade,
             "B",
-            teamsInGradeDiv(grade, "B"),
+            teamsForBracket(grade, "B"),
             allMatches,
             effectiveLeagueCountFor("B"),
-            getQualifyingLeagueAssignment(meta, grade, "B")
+            getQualifyingLeagueAssignment(meta, grade, "B"),
+            fpOpts(teamsForBracket(grade, "B"))
           ).seeds,
         };
     setSeedPreview(seeds);
@@ -969,25 +1138,28 @@ export function AdminDashboard() {
     const seeds = isUnified
       ? computeSeedsForGradeUnified(
           grade,
-          teamsInGradeDiv(grade, "A"),
-          allMatches
+          teamsForBracket(grade, "A"),
+          allMatches,
+          fpOpts(teamsForBracket(grade, "A"))
         ).seeds
       : {
           A: computeSeedsForGradeDivision(
             grade,
             "A",
-            teamsInGradeDiv(grade, "A"),
+            teamsForBracket(grade, "A"),
             allMatches,
             effectiveLeagueCountFor("A"),
-            getQualifyingLeagueAssignment(meta, grade, "A")
+            getQualifyingLeagueAssignment(meta, grade, "A"),
+            fpOpts(teamsForBracket(grade, "A"))
           ).seeds,
           B: computeSeedsForGradeDivision(
             grade,
             "B",
-            teamsInGradeDiv(grade, "B"),
+            teamsForBracket(grade, "B"),
             allMatches,
             effectiveLeagueCountFor("B"),
-            getQualifyingLeagueAssignment(meta, grade, "B")
+            getQualifyingLeagueAssignment(meta, grade, "B"),
+            fpOpts(teamsForBracket(grade, "B"))
           ).seeds,
         };
     const resurrectionWinnerByGroup: Partial<
@@ -1015,6 +1187,28 @@ export function AdminDashboard() {
         : undefined
     );
     setSeedPreview(seeds);
+  }
+
+  async function onSaveJapanCupChallenge() {
+    setJcBusy(true);
+    setJcStatus(null);
+    try {
+      await setJapanCupChallengeEnabled(
+        tournamentId,
+        grade,
+        jcEnabled,
+        jcEnabled ? jcChampionName : undefined
+      );
+      setJcStatus(
+        jcEnabled
+          ? "Japan Cup challenge saved. Champion is registered separately and excluded from all brackets."
+          : "Japan Cup challenge disabled."
+      );
+    } catch (err) {
+      setJcStatus(err instanceof Error ? err.message : "Could not save Japan Cup challenge.");
+    } finally {
+      setJcBusy(false);
+    }
   }
 
   async function onGenerateResurrectionPool(group: ResurrectionPoolGroup) {
@@ -1150,20 +1344,22 @@ export function AdminDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            to={liveViewHref}
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-cup-line bg-white px-4 text-sm font-medium text-cup-ink"
-          >
-            Live view
-          </Link>
+          {fairPlayEnabled ? (
+            <Link
+              to={fairPlayTeacherHref}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-cup-line bg-white px-4 text-sm font-medium text-cup-ink"
+            >
+              Fair Play (teachers)
+            </Link>
+          ) : null}
           <div className="inline-flex h-10 items-center gap-2 rounded-lg border border-cup-line bg-white px-3">
-            <span className="text-xs text-cup-muted whitespace-nowrap">Grade</span>
+            <span className="text-xs text-cup-muted whitespace-nowrap">Live grade</span>
             <select
-              id="admin-projector-grade"
+              id="admin-live-grade"
               className="min-w-[3.25rem] shrink-0 cursor-pointer border-0 bg-transparent py-0 text-sm font-medium text-cup-ink focus:outline-none focus:ring-0"
-              value={projectorGrade}
-              onChange={(e) => setProjectorGrade(e.target.value)}
-              aria-label="Projector grade"
+              value={grade}
+              onChange={(e) => setGrade(e.target.value)}
+              aria-label="Live view grade"
             >
               {GRADES.map((g) => (
                 <option key={g} value={g}>
@@ -1172,13 +1368,20 @@ export function AdminDashboard() {
               ))}
             </select>
           </div>
+          <button
+            type="button"
+            onClick={() => void onCopyLiveViewUrl()}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-cup-line bg-white px-4 text-sm font-medium text-cup-ink"
+          >
+            {liveUrlCopied ? "Copied!" : "Copy live URL"}
+          </button>
           <Link
-            to={projectorLiveHref}
+            to={liveViewHref}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex h-10 items-center justify-center rounded-lg border border-cup-line bg-cup-paper/60 px-4 text-sm font-medium text-cup-ink"
           >
-            Open projector
+            Open live view
           </Link>
           <button
             type="button"
@@ -1190,7 +1393,33 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
+      <nav className="sticky top-0 z-30 -mx-1 px-1 py-2 bg-[#f7f5f0]/95 backdrop-blur border-b border-cup-line/80 flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
+        <a href="#admin-tournament" className="text-cup-ink hover:underline">
+          Tournament
+        </a>
+        <a href="#admin-teams" className="text-cup-ink hover:underline">
+          Teams
+        </a>
+        {fairPlayEnabled || SHOW_STUDENTS_SECTION ? (
+          <a href="#admin-fair-play" className="text-cup-ink hover:underline">
+            Fair Play
+          </a>
+        ) : null}
+        <a href="#admin-preliminary" className="text-cup-ink hover:underline">
+          Preliminary
+        </a>
+        <a href="#admin-redemption" className="text-cup-ink hover:underline">
+          Redemption
+        </a>
+        <a href="#admin-finals" className="text-cup-ink hover:underline">
+          Finals
+        </a>
+      </nav>
+
+      <section
+        id="admin-tournament"
+        className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
+      >
         <h2 className="font-display text-lg font-semibold">Tournament</h2>
         <label className="flex flex-col gap-1 text-sm max-w-xs">
           <span className="font-medium">Tournament ID (RTDB path)</span>
@@ -1474,26 +1703,14 @@ export function AdminDashboard() {
         )}
       </section>
 
-      <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
-        <div className="flex flex-wrap gap-4 items-end justify-between">
-          <h2 className="font-display text-lg font-semibold">Teams</h2>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium">Working grade</span>
-            <select
-              className="border border-cup-line rounded-md px-3 py-2"
-              value={grade}
-              onChange={(e) => setGrade(e.target.value)}
-            >
-              {GRADES.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+      <section
+        id="admin-teams"
+        className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
+      >
+        <h2 className="font-display text-lg font-semibold">Teams</h2>
         <p className="text-xs text-cup-muted">
-          Teams are listed per division for the working grade above (same grade as Preliminary / Finals below).
+          Teams are listed per division for <strong>{grade}</strong> (change grade in the header).
+          Same grade drives Preliminary, Redemption, and Finals below.
         </p>
         {isUnified ? (
           <p className="text-sm text-cup-ink bg-cup-paper/80 border border-cup-line rounded-lg px-3 py-2">
@@ -1530,7 +1747,7 @@ export function AdminDashboard() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>Code (optional)</span>
+                <span>Code (roster id, e.g. FCA001)</span>
                 <input
                   className="border border-cup-line rounded-md px-3 py-2 bg-white w-full max-w-[8rem]"
                   value={teamCodeA}
@@ -1640,7 +1857,7 @@ export function AdminDashboard() {
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span>Code (optional)</span>
+                <span>Code (roster id, e.g. FCA001)</span>
                 <input
                   className="border border-cup-line rounded-md px-3 py-2 bg-white w-full max-w-[8rem]"
                   value={teamCodeB}
@@ -1729,43 +1946,45 @@ export function AdminDashboard() {
         </div>
       </section>
 
-      {SHOW_STUDENTS_SECTION ? (
-        <AdminStudentsSection tournamentId={tournamentId} />
+      {fairPlayEnabled || SHOW_STUDENTS_SECTION ? (
+        <div id="admin-fair-play" className="space-y-10 scroll-mt-20">
+          {fairPlayEnabled || SHOW_STUDENTS_SECTION ? (
+            <AdminStudentsSection
+          tournamentId={tournamentId}
+          gradeId={grade}
+          teams={teams}
+          students={students}
+          fairPlayEnabled={fairPlayEnabled}
+        />
+          ) : null}
+
+          {fairPlayEnabled ? (
+            <FairPlayAdminSection
+          tournamentId={tournamentId}
+          meta={meta as TournamentMeta | null}
+          teams={teams}
+          students={students}
+          incidents={fairPlayIncidents}
+          workingGrade={grade}
+          finalsGradeMeta={finalsGradeMeta}
+          schools={schools}
+        />
+          ) : null}
+        </div>
       ) : null}
 
-      <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
+      <section
+        id="admin-preliminary"
+        className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
+      >
         <div className="flex flex-wrap gap-4 items-end justify-between">
           <h2 className="font-display text-lg font-semibold">Preliminary</h2>
-          <div className="flex flex-wrap items-end gap-3">
-            <p className="text-sm text-cup-muted">
-              Grade: <strong>{grade}</strong> (change under Teams above)
-            </p>
-            <label className="text-xs text-cup-muted">
-              View
-              <select
-                value={qualViewMode}
-                onChange={(e) =>
-                  setQualViewMode(e.target.value === "quick" ? "quick" : "cards")
-                }
-                className="ml-2 border border-cup-line rounded px-2 py-1 bg-white"
-              >
-                <option value="cards">Cards</option>
-                <option value="quick">Quick entry</option>
-              </select>
-            </label>
-            <label className="text-xs text-cup-muted">
-              Filter
-              <select
-                value={qualFilter}
-                onChange={(e) => setQualFilter(e.target.value as GridFilter)}
-                className="ml-2 border border-cup-line rounded px-2 py-1 bg-white"
-              >
-                <option value="all">All</option>
-                <option value="unfinished">Unfinished</option>
-                <option value="completed">Completed</option>
-              </select>
-            </label>
-          </div>
+          <MatchSectionToolbar
+            viewMode={qualViewMode}
+            onViewModeChange={setQualViewMode}
+            filter={qualFilter}
+            onFilterChange={setQualFilter}
+          />
         </div>
         {isUnified ? (
           <p className="text-xs text-cup-muted">
@@ -1786,15 +2005,15 @@ export function AdminDashboard() {
               <div className="space-y-4">
                 <div>
                   <h4 className="text-xs font-semibold text-cup-muted mb-1">League 1</h4>
-                  <StandingsTable standings={standA_L1} nameById={nameById} />
+                  <StandingsTable standings={standA_L1} nameById={nameById} showFairPlay={fairPlayEnabled} />
                 </div>
                 <div>
                   <h4 className="text-xs font-semibold text-cup-muted mb-1">League 2</h4>
-                  <StandingsTable standings={standA_L2} nameById={nameById} />
+                  <StandingsTable standings={standA_L2} nameById={nameById} showFairPlay={fairPlayEnabled} />
                 </div>
               </div>
             ) : (
-              <StandingsTable standings={standA} nameById={nameById} />
+              <StandingsTable standings={standA} nameById={nameById} showFairPlay={fairPlayEnabled} />
             )}
           </div>
           {!isUnified ? (
@@ -1806,15 +2025,15 @@ export function AdminDashboard() {
               <div className="space-y-4">
                 <div>
                   <h4 className="text-xs font-semibold text-cup-muted mb-1">League 1</h4>
-                  <StandingsTable standings={standB_L1} nameById={nameById} />
+                  <StandingsTable standings={standB_L1} nameById={nameById} showFairPlay={fairPlayEnabled} />
                 </div>
                 <div>
                   <h4 className="text-xs font-semibold text-cup-muted mb-1">League 2</h4>
-                  <StandingsTable standings={standB_L2} nameById={nameById} />
+                  <StandingsTable standings={standB_L2} nameById={nameById} showFairPlay={fairPlayEnabled} />
                 </div>
               </div>
             ) : (
-              <StandingsTable standings={standB} nameById={nameById} />
+              <StandingsTable standings={standB} nameById={nameById} showFairPlay={fairPlayEnabled} />
             )}
           </div>
           ) : null}
@@ -1855,7 +2074,7 @@ export function AdminDashboard() {
               ) : null}
             </div>
             {effectiveLeagueCountFor("A") === 2 &&
-            teamsInGradeDiv(grade, "A").length >= 4 ? (
+            teamsForBracket(grade, "A").length >= 4 ? (
               <div className="text-xs space-y-2 border border-cup-line rounded-lg p-3 bg-white">
                 <p className="text-cup-muted font-medium">Saved L1 / L2 split</p>
                 <p>
@@ -1954,7 +2173,7 @@ export function AdminDashboard() {
               ) : null}
             </div>
             {effectiveLeagueCountFor("B") === 2 &&
-            teamsInGradeDiv(grade, "B").length >= 4 ? (
+            teamsForBracket(grade, "B").length >= 4 ? (
               <div className="text-xs space-y-2 border border-cup-line rounded-lg p-3 bg-white">
                 <p className="text-cup-muted font-medium">Saved L1 / L2 split</p>
                 <p>
@@ -2026,36 +2245,18 @@ export function AdminDashboard() {
         </div>
       </section>
 
-      <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
+      <section
+        id="admin-redemption"
+        className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
+      >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="font-display text-lg font-semibold">Redemption</h2>
-          <div className="flex items-end gap-3">
-            <label className="text-xs text-cup-muted">
-              View
-              <select
-                value={resViewMode}
-                onChange={(e) =>
-                  setResViewMode(e.target.value === "quick" ? "quick" : "cards")
-                }
-                className="ml-2 border border-cup-line rounded px-2 py-1 bg-white"
-              >
-                <option value="cards">Cards</option>
-                <option value="quick">Quick entry</option>
-              </select>
-            </label>
-            <label className="text-xs text-cup-muted">
-              Filter
-              <select
-                value={resFilter}
-                onChange={(e) => setResFilter(e.target.value as GridFilter)}
-                className="ml-2 border border-cup-line rounded px-2 py-1 bg-white"
-              >
-                <option value="all">All</option>
-                <option value="unfinished">Unfinished</option>
-                <option value="completed">Completed</option>
-              </select>
-            </label>
-          </div>
+          <MatchSectionToolbar
+            viewMode={resViewMode}
+            onViewModeChange={setResViewMode}
+            filter={resFilter}
+            onFilterChange={setResFilter}
+          />
         </div>
         <p className="text-xs text-cup-muted max-w-3xl">
           Below-cut teams (same K as direct finals qualifiers) play a single-elimination bracket:
@@ -2244,37 +2445,31 @@ export function AdminDashboard() {
         )}
       </section>
 
-      <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
+      <section
+        id="admin-finals"
+        className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
+      >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="font-display text-lg font-semibold">Finals</h2>
-          <div className="flex items-end gap-3">
-            <label className="text-xs text-cup-muted">
-              View
-              <select
-                value={finalsViewMode}
-                onChange={(e) =>
-                  setFinalsViewMode(e.target.value === "quick" ? "quick" : "cards")
-                }
-                className="ml-2 border border-cup-line rounded px-2 py-1 bg-white"
-              >
-                <option value="cards">Cards</option>
-                <option value="quick">Quick entry</option>
-              </select>
-            </label>
-            <label className="text-xs text-cup-muted">
-              Filter
-              <select
-                value={finalsFilter}
-                onChange={(e) => setFinalsFilter(e.target.value as GridFilter)}
-                className="ml-2 border border-cup-line rounded px-2 py-1 bg-white"
-              >
-                <option value="all">All</option>
-                <option value="unfinished">Unfinished</option>
-                <option value="completed">Completed</option>
-              </select>
-            </label>
-          </div>
+          <MatchSectionToolbar
+            viewMode={finalsViewMode}
+            onViewModeChange={setFinalsViewMode}
+            filter={finalsFilter}
+            onFilterChange={setFinalsFilter}
+          />
         </div>
+        <JapanCupConfigPanel
+          grade={grade}
+          jcEnabled={jcEnabled}
+          onJcEnabledChange={setJcEnabled}
+          jcChampionName={jcChampionName}
+          onJcChampionNameChange={setJcChampionName}
+          jcBusy={jcBusy}
+          jcStatus={jcStatus}
+          onSave={() => void onSaveJapanCupChallenge()}
+          showExistingBracketWarning={jcExistingDataWarning}
+          showChallengeProgressWarning={jcChallengeHasProgress}
+        />
         <label className="flex items-start gap-2 text-sm cursor-pointer max-w-xl">
           <input
             type="checkbox"
@@ -2318,25 +2513,38 @@ export function AdminDashboard() {
         )}
         <div className="space-y-4">
           {isUnified ? (
-            finalsViewMode === "quick" ? (
-              <MatchScoreGrid
-                title={`${grade} · Unified finals quick scores`}
-                rows={finalsRows(finalsUnified)}
+            <>
+              {finalsViewMode === "quick" ? (
+                <MatchScoreGrid
+                  title={`${grade} · Unified finals quick scores`}
+                  rows={finalsRows(finalsUnified)}
+                  onSaveRow={onSaveFinalsQuick}
+                />
+              ) : (
+                finalsUnified
+                  .sort(compareFinalByRoundThenScheduleThenSlot)
+                  .map((m, idx) => (
+                    <FinalMatchEditor
+                      key={`U-${m.id}-${m.roundIndex}-${m.slotInRound}-${idx}`}
+                      m={m}
+                      tournamentId={tournamentId}
+                      grade={grade}
+                      nameById={nameById}
+                    />
+                  ))
+              )}
+              <JapanCupChallengeScoring
+                grade={grade}
+                matches={finalsJapanCupChallenge}
+                gradeFinalComplete={gradeFinalComplete}
+                viewMode={finalsViewMode}
+                finalsRows={finalsRows}
                 onSaveRow={onSaveFinalsQuick}
+                tournamentId={tournamentId}
+                nameById={nameById}
+                FinalMatchEditor={FinalMatchEditor}
               />
-            ) : (
-              finalsUnified
-                .sort(compareFinalByRoundThenScheduleThenSlot)
-                .map((m, idx) => (
-                  <FinalMatchEditor
-                    key={`U-${m.id}-${m.roundIndex}-${m.slotInRound}-${idx}`}
-                    m={m}
-                    tournamentId={tournamentId}
-                    grade={grade}
-                    nameById={nameById}
-                  />
-                ))
-            )
+            </>
           ) : (
             <div className="space-y-4">
               <div className="grid lg:grid-cols-2 gap-4">
@@ -2415,6 +2623,17 @@ export function AdminDashboard() {
                   )}
                 </div>
               ) : null}
+              <JapanCupChallengeScoring
+                grade={grade}
+                matches={finalsJapanCupChallenge}
+                gradeFinalComplete={gradeFinalComplete}
+                viewMode={finalsViewMode}
+                finalsRows={finalsRows}
+                onSaveRow={onSaveFinalsQuick}
+                tournamentId={tournamentId}
+                nameById={nameById}
+                FinalMatchEditor={FinalMatchEditor}
+              />
             </div>
           )}
         </div>
@@ -2423,25 +2642,145 @@ export function AdminDashboard() {
   );
 }
 
-function AdminStudentsSection({ tournamentId }: { tournamentId: string }) {
+function AdminStudentsSection({
+  tournamentId,
+  gradeId,
+  teams,
+  students,
+  fairPlayEnabled,
+}: {
+  tournamentId: string;
+  gradeId: string;
+  teams: Record<string, TeamRecord> | null;
+  students: Record<string, StudentRecord> | null;
+  fairPlayEnabled: boolean;
+}) {
   const [studentName, setStudentName] = useState("");
-  const [studentTeamId, setStudentTeamId] = useState("");
+  const [studentTeamCode, setStudentTeamCode] = useState("");
   const [studentId, setStudentId] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const [bulkPaste, setBulkPaste] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
+  const [bulkFailed, setBulkFailed] = useState(false);
+  const teamCodes = useMemo(() => listTeamCodes(teams, gradeId), [teams, gradeId]);
+  const duplicateCodes = useMemo(() => findDuplicateTeamCodes(teams), [teams]);
 
   async function onAddStudent(e: FormEvent) {
     e.preventDefault();
+    setFormError(null);
     if (!studentId.trim() || !studentName.trim()) return;
-    await addStudent(tournamentId, studentId.trim(), {
-      name: studentName.trim(),
-      ...(studentTeamId.trim() ? { teamId: studentTeamId.trim() } : {}),
-    });
-    setStudentName("");
-    setStudentId("");
+    try {
+      await addStudent(
+        tournamentId,
+        studentId.trim(),
+        {
+          name: studentName.trim(),
+          ...(studentTeamCode.trim() ? { teamId: studentTeamCode.trim() } : {}),
+        },
+        teams,
+        { gradeId }
+      );
+      setStudentName("");
+      setStudentId("");
+      setStudentTeamCode("");
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not save student.");
+    }
+  }
+
+  async function onBulkUpload(e: FormEvent) {
+    e.preventDefault();
+    setBulkResult(null);
+    setBulkFailed(false);
+    if (!teams || Object.keys(teams).length === 0) {
+      setBulkFailed(true);
+      setBulkResult("Add teams before uploading students.");
+      return;
+    }
+    const parsed = parseStudentCsvPaste(bulkPaste);
+    if (!parsed.ok) {
+      setBulkFailed(true);
+      setBulkResult(parsed.error);
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const result = await bulkAddStudents(
+        tournamentId,
+        parsed.rows.map((r) => ({
+          line: r.line,
+          studentId: r.studentId,
+          name: r.name,
+          teamCodeOrId: r.teamCodeOrId,
+          divisionId: r.divisionId,
+        })),
+        teams,
+        { gradeId }
+      );
+      if (result.errors.length === 0) {
+        setBulkResult(`Saved ${result.saved} student(s).`);
+        setBulkPaste("");
+      } else {
+        setBulkFailed(result.saved === 0);
+        const detail = result.errors
+          .slice(0, 5)
+          .map((e) =>
+            e.line
+              ? `Line ${e.line} (${e.studentId ?? "?"}): ${e.message}`
+              : `${e.studentId ?? "?"}: ${e.message}`
+          )
+          .join("; ");
+        setBulkResult(
+          `Saved ${result.saved}; ${result.errors.length} error(s). ${detail}${
+            result.errors.length > 5 ? " …" : ""
+          }`
+        );
+      }
+    } catch (err) {
+      setBulkFailed(true);
+      setBulkResult(err instanceof Error ? err.message : "Bulk upload failed.");
+    } finally {
+      setBulkBusy(false);
+    }
   }
 
   return (
     <section className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4">
       <h2 className="font-display text-lg font-semibold">Students</h2>
+      <p className="text-sm text-cup-muted">
+        Link each student to a team using its <strong>code</strong> (e.g.{" "}
+        <span className="font-mono text-xs">FCA001</span>), <strong>team name</strong>, or
+        Firebase team id. Upload uses the selected grade <strong>{gradeId}</strong> when a
+        code is shared across grades. Stored records always use the canonical team id.
+      </p>
+      {duplicateCodes.length > 0 ? (
+        <div className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 space-y-1">
+          <p className="font-medium">Duplicate team codes detected</p>
+          {duplicateCodes.map((d) => (
+            <p key={d.code}>
+              <span className="font-mono">{d.code}</span> on:{" "}
+              {d.teamIds.map((id) => describeTeamMatch(id, teams ?? {})).join("; ")}
+            </p>
+          ))}
+          <p>
+            Fix codes under Teams so each team is unique, or add a 4th CSV column{" "}
+            <span className="font-mono">A</span> or <span className="font-mono">B</span> for
+            division (e.g. <span className="font-mono">s001,Maggie,FCA001,A</span>).
+          </p>
+        </div>
+      ) : null}
+      {teamCodes.length > 0 ? (
+        <p className="text-xs text-cup-muted">
+          Team codes in {gradeId}:{" "}
+          <span className="font-mono">{teamCodes.join(", ")}</span>
+        </p>
+      ) : teams && Object.keys(teams).length > 0 ? (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1">
+          No team codes set — bulk upload can still match by <strong>team name</strong>, or add a
+          code under Teams → Code.
+        </p>
+      ) : null}
       <form onSubmit={onAddStudent} className="flex flex-wrap gap-3 items-end">
         <label className="flex flex-col gap-1 text-sm">
           <span>Student ID (key)</span>
@@ -2462,11 +2801,12 @@ function AdminStudentsSection({ tournamentId }: { tournamentId: string }) {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span>Team ID (optional)</span>
+          <span>Team code (optional)</span>
           <input
             className="border border-cup-line rounded-md px-3 py-2 font-mono text-xs w-40"
-            value={studentTeamId}
-            onChange={(e) => setStudentTeamId(e.target.value)}
+            value={studentTeamCode}
+            onChange={(e) => setStudentTeamCode(e.target.value)}
+            placeholder="G1-A-01"
           />
         </label>
         <button
@@ -2476,6 +2816,90 @@ function AdminStudentsSection({ tournamentId }: { tournamentId: string }) {
           Save student
         </button>
       </form>
+      {formError ? (
+        <p className="text-sm text-red-700" role="alert">
+          {formError}
+        </p>
+      ) : null}
+      <form onSubmit={onBulkUpload} className="space-y-2 border-t border-cup-line pt-4">
+        <h3 className="text-sm font-medium">Bulk upload (CSV)</h3>
+        <p className="text-xs text-cup-muted">
+          One row per line:{" "}
+          <span className="font-mono">studentId,name,teamCode</span> or{" "}
+          <span className="font-mono">studentId,name,teamCode,division</span> (A or B).
+          Header row optional. Lines starting with # are ignored.
+        </p>
+        <textarea
+          className="w-full min-h-[120px] border border-cup-line rounded-md px-3 py-2 font-mono text-xs"
+          value={bulkPaste}
+          onChange={(e) => setBulkPaste(e.target.value)}
+          placeholder={`studentId,name,teamCode\ns001,Yamada Taro,G1-A-01\ns002,Lee Min,G1-A-01`}
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="submit"
+            disabled={bulkBusy || !bulkPaste.trim()}
+            className="px-4 py-2 rounded-lg border border-cup-line text-sm font-medium disabled:opacity-50"
+          >
+            {bulkBusy ? "Uploading…" : "Upload students"}
+          </button>
+          {bulkResult ? (
+            <p
+              className={`text-sm ${bulkFailed ? "text-red-700 font-medium" : "text-green-800"}`}
+              role="alert"
+            >
+              {bulkResult}
+            </p>
+          ) : null}
+        </div>
+      </form>
+      {students && Object.keys(students).length > 0 ? (
+        <div className="overflow-x-auto border border-cup-line rounded-lg">
+          <table className="min-w-full text-sm">
+            <thead className="bg-cup-ink/5 text-cup-muted text-xs uppercase tracking-wide">
+              <tr>
+                <th className="px-3 py-2 text-left">ID</th>
+                <th className="px-3 py-2 text-left">Name</th>
+                <th className="px-3 py-2 text-left">Team</th>
+                {fairPlayEnabled ? (
+                  <th className="px-3 py-2 text-right">Fair Play</th>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(students).map(([id, s]) => {
+                const code = teamCodeById(teams, s.teamId);
+                return (
+                  <tr key={id} className="border-t border-cup-line">
+                    <td className="px-3 py-2 font-mono text-xs">{id}</td>
+                    <td className="px-3 py-2">{s.name}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {code ? (
+                        <span className="font-mono">{code}</span>
+                      ) : s.teamId ? (
+                        <span className="font-mono text-cup-muted">
+                          {teams?.[s.teamId]?.name ?? s.teamId}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    {fairPlayEnabled ? (
+                      <td className="px-3 py-2 text-right text-xs">
+                        {typeof s.fairPlayInitialShare === "number" ? (
+                          `${s.fairPlayPoints ?? 0}/${s.fairPlayInitialShare}`
+                        ) : (
+                          <span className="text-amber-700">not initialized</span>
+                        )}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
     </section>
   );
 }

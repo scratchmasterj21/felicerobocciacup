@@ -42,7 +42,21 @@ import {
   buildFinalBracketMatchTree,
   buildSplitFinalBracketWithGradeChampionship,
   buildResurrectionBracketMatchTree,
+  buildJapanCupChallengeMatch,
+  findGradeChampionshipMatch,
+  findJapanCupChallengeMatch,
 } from "@/lib/tournament/bracketMatches";
+import { snapshotJapanCupEligibilityForGrade } from "@/lib/firebase/fairPlayService";
+import { isFairPlayEnabled } from "@/lib/tournament/fairPlay";
+import {
+  getJapanCupChampionTeamId,
+  gradeChampionshipComplete,
+  japanCupChampionTeamIdForGrade,
+  stripJapanCupChampionFromSeeds,
+  validateJapanCupChampionNotInBracket,
+  type FinalsGradeMeta,
+} from "@/lib/tournament/japanCupChallenge";
+import { resolveTeamId, type ResolveTeamIdOptions } from "@/lib/tournament/teamResolve";
 
 function stripDeep(value: unknown): unknown {
   if (value === undefined) return undefined;
@@ -61,6 +75,35 @@ function stripDeep(value: unknown): unknown {
   return value;
 }
 
+function finalMatchHasScores(m: FinalMatchData): boolean {
+  return (
+    m.status === "COMPLETED" ||
+    m.status === "IN_PROGRESS" ||
+    Boolean(m.regulation || m.extra8min || m.suddenDeath)
+  );
+}
+
+async function loadQualifyingMatchesRecord(
+  tournamentId: string
+): Promise<Record<string, QualifyingMatchData>> {
+  const snap = await get(ref(getDb(), paths.qualifyingMatches(tournamentId)));
+  return (snap.val() as Record<string, QualifyingMatchData> | null) ?? {};
+}
+
+async function assertJapanCupChallengeScoringAllowed(
+  tournamentId: string,
+  gradeId: string,
+  match: FinalMatchData
+): Promise<void> {
+  if (match.matchKind !== "japanCupChallenge") return;
+  const all = await loadFinalMatchesForGrade(tournamentId, gradeId);
+  if (!gradeChampionshipComplete(all)) {
+    throw new Error(
+      "Complete the grade championship final before scoring the Japan Cup challenge."
+    );
+  }
+}
+
 export type QualifyingMode = "twoPools" | "unified";
 
 /** Set once at tournament creation; not mutable via partial meta updates. */
@@ -69,7 +112,7 @@ export type TournamentKind = "intraSchool" | "interSchool";
 export interface TournamentMeta {
   name: string;
   schoolYear: number;
-  createdAt: number;
+  createdAt?: number;
   /**
    * Within-school vs school-vs-school. Omit in legacy DB = treat as within-school.
    * Immutable after create (change via new tournament ID or delete meta).
@@ -107,11 +150,21 @@ export interface TeamRecord {
   code?: string;
   /** References `tournaments/.../schools/{schoolId}` when set. */
   schoolId?: string;
+  /** Within-school Fair Play balance (default 15 when unset). */
+  fairPlayPoints?: number;
+  /** Japan Cup defending champion — not in preliminary/finals pools. */
+  japanCupChampionOnly?: true;
 }
 
 export interface StudentRecord {
   name: string;
   teamId?: string;
+  /** Current Fair Play balance (0..fairPlayInitialShare). */
+  fairPlayPoints?: number;
+  /** Starting slice from team pool of 15. */
+  fairPlayInitialShare?: number;
+  /** Set when finals bracket is generated for the team's grade. */
+  japanCupEligible?: boolean;
 }
 
 export function subscribeTournamentMeta(
@@ -393,6 +446,7 @@ export async function addTeam(
     gradeId: team.gradeId,
     divisionId: team.divisionId,
     name: team.name,
+    fairPlayPoints: team.fairPlayPoints ?? 15,
   };
   if (team.code !== undefined && team.code !== "")
     payload.code = team.code;
@@ -412,6 +466,7 @@ export async function pushTeam(
     gradeId: team.gradeId,
     divisionId: team.divisionId,
     name: team.name,
+    fairPlayPoints: team.fairPlayPoints ?? 15,
     ...(team.code ? { code: team.code } : {}),
     ...(team.schoolId ? { schoolId: team.schoolId } : {}),
   });
@@ -530,12 +585,33 @@ export async function deleteQualifyingMatchesByIds(
   await update(ref(getDb()), updates);
 }
 
-/** Remove all finals data for one grade (bracket + meta). */
+/** Remove finals matches for one grade; preserves Japan Cup challenge meta and JC team when enabled. */
 export async function deleteFinalsForGrade(
   tournamentId: string,
   gradeId: string
 ): Promise<void> {
-  await remove(ref(getDb(), paths.finalsGradeRoot(tournamentId, gradeId)));
+  const meta = (await loadFinalsGradeMeta(tournamentId, gradeId)) ?? {};
+  await remove(ref(getDb(), paths.finalsMatches(tournamentId, gradeId)));
+  const preserved: FinalsGradeMeta = {};
+  if (meta.japanCupChallenge?.enabled) {
+    preserved.japanCupChallenge = {
+      ...meta.japanCupChallenge,
+      matchId: undefined,
+    };
+  }
+  if (Object.keys(preserved).length === 0) {
+    await remove(ref(getDb(), paths.finalsGradeMeta(tournamentId, gradeId)));
+    return;
+  }
+  await update(ref(getDb(), paths.finalsGradeMeta(tournamentId, gradeId)), {
+    generatedAt: null,
+    seeds: null,
+    trueGradeChampionTeamId: null,
+    japanCupChallenge: stripDeep({
+      ...preserved.japanCupChallenge,
+      matchId: undefined,
+    }),
+  });
 }
 
 export async function completeQualifyingMatch(
@@ -581,6 +657,196 @@ export async function updateFinalSchedule(
   }
 }
 
+export type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
+
+async function loadFinalsGradeMeta(
+  tournamentId: string,
+  gradeId: string
+): Promise<FinalsGradeMeta | null> {
+  const snap = await get(ref(getDb(), paths.finalsGradeMeta(tournamentId, gradeId)));
+  return snap.val() as FinalsGradeMeta | null;
+}
+
+async function loadFinalMatchesForGrade(
+  tournamentId: string,
+  gradeId: string
+): Promise<FinalMatchData[]> {
+  const snap = await get(ref(getDb(), paths.finalsMatches(tournamentId, gradeId)));
+  const val = snap.val() as Record<string, FinalMatchData> | null;
+  return val ? Object.values(val) : [];
+}
+
+async function maybeSyncJapanCupChallengeAfterFinal(
+  tournamentId: string,
+  gradeId: string,
+  completedMatch: FinalMatchData
+): Promise<void> {
+  if (completedMatch.status !== "COMPLETED" || !completedMatch.winnerTeamId) return;
+
+  const meta = await loadFinalsGradeMeta(tournamentId, gradeId);
+  if (!meta?.japanCupChallenge?.enabled) return;
+
+  if (completedMatch.matchKind === "japanCupChallenge") {
+    await update(ref(getDb(), paths.finalsGradeMeta(tournamentId, gradeId)), {
+      trueGradeChampionTeamId: completedMatch.winnerTeamId,
+    });
+    return;
+  }
+
+  const allMatches = await loadFinalMatchesForGrade(tournamentId, gradeId);
+  const gradeFinal = findGradeChampionshipMatch(allMatches);
+  if (!gradeFinal || gradeFinal.id !== completedMatch.id) return;
+
+  const championTeamId =
+    getJapanCupChampionTeamId(meta, gradeId) ?? japanCupChampionTeamIdForGrade(gradeId);
+  const existingChallenge = findJapanCupChallengeMatch(allMatches);
+
+  if (existingChallenge?.status === "COMPLETED") return;
+
+  if (
+    existingChallenge &&
+    existingChallenge.id === buildJapanCupChallengeMatch(
+      gradeId,
+      gradeFinal,
+      championTeamId,
+      completedMatch.winnerTeamId
+    ).id &&
+    finalMatchHasScores(existingChallenge)
+  ) {
+    if (existingChallenge.teamAId !== completedMatch.winnerTeamId) {
+      await update(ref(getDb(), paths.finalsMatch(tournamentId, gradeId, existingChallenge.id)), {
+        teamAId: completedMatch.winnerTeamId,
+      });
+    }
+    return;
+  }
+
+  const built = buildJapanCupChallengeMatch(
+    gradeId,
+    gradeFinal,
+    championTeamId,
+    completedMatch.winnerTeamId
+  );
+
+  const updates: Record<string, unknown> = {
+    [paths.finalsMatch(tournamentId, gradeId, built.id)]: stripDeep(
+      (() => {
+        const { id: _id, ...rest } = built;
+        return rest;
+      })()
+    ),
+    [`${paths.finalsGradeMeta(tournamentId, gradeId)}/japanCupChallenge/matchId`]:
+      built.id,
+  };
+
+  if (existingChallenge && existingChallenge.id !== built.id) {
+    updates[paths.finalsMatch(tournamentId, gradeId, existingChallenge.id)] = null;
+  }
+
+  await update(ref(getDb()), updates);
+}
+
+export async function setJapanCupChallengeEnabled(
+  tournamentId: string,
+  gradeId: string,
+  enabled: boolean,
+  championName?: string
+): Promise<void> {
+  const metaPath = paths.finalsGradeMeta(tournamentId, gradeId);
+  const existing = (await loadFinalsGradeMeta(tournamentId, gradeId)) ?? {};
+  const championTeamId =
+    existing.japanCupChallenge?.championTeamId ??
+    japanCupChampionTeamIdForGrade(gradeId);
+
+  if (!enabled) {
+    const matchId = existing.japanCupChallenge?.matchId;
+    const updates: Record<string, unknown> = {
+      [`${metaPath}/japanCupChallenge`]: null,
+      [`${metaPath}/trueGradeChampionTeamId`]: null,
+      [paths.team(tournamentId, championTeamId)]: null,
+    };
+    if (matchId) {
+      updates[paths.finalsMatch(tournamentId, gradeId, matchId)] = null;
+    }
+    await update(ref(getDb()), updates);
+    return;
+  }
+
+  const name = championName?.trim();
+  if (!name) throw new Error("Enter the Japan Cup champion team name.");
+
+  const qMatches = await loadQualifyingMatchesRecord(tournamentId);
+  const allMatches = await loadFinalMatchesForGrade(tournamentId, gradeId);
+  const teamSnap = await get(ref(getDb(), paths.team(tournamentId, championTeamId)));
+  const existingTeam = teamSnap.val() as TeamRecord | null;
+  if (
+    existingTeam &&
+    !existingTeam.japanCupChampionOnly &&
+    existingTeam.gradeId === gradeId
+  ) {
+    throw new Error(
+      "The Japan Cup champion team id is already used by a regular pool team. Remove or rename that team first."
+    );
+  }
+  const bracketErr = validateJapanCupChampionNotInBracket(
+    championTeamId,
+    gradeId,
+    qMatches,
+    Object.fromEntries(allMatches.map((m) => [m.id, m]))
+  );
+  if (bracketErr) throw new Error(bracketErr);
+
+  const gradeFinal = findGradeChampionshipMatch(allMatches);
+  const existingChallenge = findJapanCupChallengeMatch(allMatches);
+  let challengeMatchId = existing.japanCupChallenge?.matchId;
+  const nameOnly =
+    existing.japanCupChallenge?.enabled &&
+    existing.japanCupChallenge.championTeamId === championTeamId &&
+    existing.japanCupChallenge.championName !== name;
+
+  const updates: Record<string, unknown> = {
+    [paths.team(tournamentId, championTeamId)]: stripDeep({
+      gradeId,
+      divisionId: "A",
+      name,
+      japanCupChampionOnly: true,
+    }),
+  };
+
+  const shouldRebuildMatch =
+    gradeFinal &&
+    (!existingChallenge ||
+      !finalMatchHasScores(existingChallenge) ||
+      !nameOnly);
+
+  if (shouldRebuildMatch && gradeFinal) {
+    const winner =
+      gradeFinal.status === "COMPLETED" ? gradeFinal.winnerTeamId : undefined;
+    const built = buildJapanCupChallengeMatch(
+      gradeId,
+      gradeFinal,
+      championTeamId,
+      winner
+    );
+    const { id, ...rest } = built;
+    challengeMatchId = id;
+    updates[paths.finalsMatch(tournamentId, gradeId, id)] = stripDeep(rest);
+
+    if (existingChallenge && existingChallenge.id !== id) {
+      updates[paths.finalsMatch(tournamentId, gradeId, existingChallenge.id)] = null;
+    }
+  }
+
+  updates[`${metaPath}/japanCupChallenge`] = stripDeep({
+    enabled: true,
+    championTeamId,
+    championName: name,
+    matchId: challengeMatchId,
+  });
+
+  await update(ref(getDb()), updates);
+}
+
 export type GenerateFinalsOptions = {
   /** Append redemption champion per pool when generating main finals (K+1 seeds). */
   resurrectionWinnerByGroup?: Partial<Record<ResurrectionPoolGroup, string>>;
@@ -592,30 +858,96 @@ export async function generateFinalsForGrade(
   seedsOrdered: string[] | { A: string[]; B: string[] },
   options?: GenerateFinalsOptions
 ): Promise<void> {
+  const meta = await get(ref(getDb(), paths.tournamentMeta(tournamentId))).then((s) =>
+    s.val() as TournamentMeta | null
+  );
+  if (isFairPlayEnabled(meta)) {
+    await snapshotJapanCupEligibilityForGrade(tournamentId, gradeId);
+  }
+  const existingGradeMeta = (await loadFinalsGradeMeta(tournamentId, gradeId)) ?? {};
+  const priorMatches = await loadFinalMatchesForGrade(tournamentId, gradeId);
+  const priorChallenge = findJapanCupChallengeMatch(priorMatches);
+  const championId = getJapanCupChampionTeamId(existingGradeMeta, gradeId);
+  const strippedSeeds = stripJapanCupChampionFromSeeds(seedsOrdered, championId);
   const rw = options?.resurrectionWinnerByGroup;
   const mergedSeeds: string[] | { A: string[]; B: string[] } = Array.isArray(
-    seedsOrdered
+    strippedSeeds
   )
     ? rw?.U
-      ? [...seedsOrdered, rw.U]
-      : seedsOrdered
+      ? [...strippedSeeds, rw.U]
+      : strippedSeeds
     : {
-        A: rw?.A ? [...seedsOrdered.A, rw.A] : seedsOrdered.A,
-        B: rw?.B ? [...seedsOrdered.B, rw.B] : seedsOrdered.B,
+        A: rw?.A ? [...strippedSeeds.A, rw.A] : strippedSeeds.A,
+        B: rw?.B ? [...strippedSeeds.B, rw.B] : strippedSeeds.B,
       };
   const trees = Array.isArray(mergedSeeds)
     ? [buildFinalBracketMatchTree(gradeId, mergedSeeds, "U")]
     : [buildSplitFinalBracketWithGradeChampionship(gradeId, mergedSeeds.A, mergedSeeds.B)];
-  const allMatches = trees.flat();
+  let allMatches = trees.flat();
+
+  if (existingGradeMeta.japanCupChallenge?.enabled && championId) {
+    const gradeFinal = findGradeChampionshipMatch(allMatches);
+    if (gradeFinal) {
+      allMatches = allMatches.filter((m) => m.matchKind !== "japanCupChallenge");
+      const winner =
+        gradeFinal.status === "COMPLETED" ? gradeFinal.winnerTeamId : undefined;
+      const challenge = buildJapanCupChallengeMatch(
+        gradeId,
+        gradeFinal,
+        championId,
+        winner
+      );
+      allMatches.push(challenge);
+      if (
+        priorChallenge?.status === "COMPLETED" &&
+        priorChallenge.id === challenge.id
+      ) {
+        allMatches[allMatches.length - 1] = priorChallenge;
+      }
+      existingGradeMeta.japanCupChallenge = {
+        ...existingGradeMeta.japanCupChallenge,
+        enabled: true,
+        championTeamId: championId,
+        matchId: challenge.id,
+      };
+    }
+  }
+
+  const metaPayload: FinalsGradeMeta = {
+    generatedAt: Date.now(),
+    seeds: mergedSeeds,
+    ...(existingGradeMeta.japanCupChallenge
+      ? { japanCupChallenge: existingGradeMeta.japanCupChallenge }
+      : {}),
+    ...(existingGradeMeta.trueGradeChampionTeamId &&
+    findJapanCupChallengeMatch(allMatches)?.status === "COMPLETED"
+      ? {
+          trueGradeChampionTeamId:
+            findJapanCupChallengeMatch(allMatches)?.winnerTeamId ??
+            existingGradeMeta.trueGradeChampionTeamId,
+        }
+      : {}),
+  };
+
+  const existingMatchSnap = await get(
+    ref(getDb(), paths.finalsMatches(tournamentId, gradeId))
+  );
+  const existingMatchKeys = Object.keys(
+    (existingMatchSnap.val() as Record<string, FinalMatchData> | null) ?? {}
+  );
+  const newMatchIds = new Set(allMatches.map((m) => m.id));
+
   const updates: Record<string, unknown> = {
-    [paths.finalsGradeMeta(tournamentId, gradeId)]: stripDeep({
-      generatedAt: Date.now(),
-      seeds: mergedSeeds,
-    }),
+    [paths.finalsGradeMeta(tournamentId, gradeId)]: stripDeep(metaPayload),
   };
   for (const m of allMatches) {
     const { id, ...rest } = m;
     updates[paths.finalsMatch(tournamentId, gradeId, id)] = stripDeep(rest);
+  }
+  for (const id of existingMatchKeys) {
+    if (!newMatchIds.has(id)) {
+      updates[paths.finalsMatch(tournamentId, gradeId, id)] = null;
+    }
   }
   await update(ref(getDb()), updates);
 }
@@ -768,6 +1100,7 @@ export async function finalizeFinalMatchAndAdvance(
       ref(getDb(), paths.finalsMatch(tournamentId, gradeId, match.id)),
       payload
     );
+    await maybeSyncJapanCupChallengeAfterFinal(tournamentId, gradeId, match);
     return;
   }
   const parentPath = paths.finalsMatch(tournamentId, gradeId, match.nextMatchId);
@@ -785,6 +1118,7 @@ export async function finalizeFinalMatchAndAdvance(
     [paths.finalsMatch(tournamentId, gradeId, match.id)]: payload,
     [`${parentPath}/${slot}`]: match.winnerTeamId,
   });
+  await maybeSyncJapanCupChallengeAfterFinal(tournamentId, gradeId, match);
 }
 
 export async function submitFinalRegulation(
@@ -793,6 +1127,7 @@ export async function submitFinalRegulation(
   current: FinalMatchData,
   regulation: RegulationScores
 ): Promise<void> {
+  await assertJapanCupChallengeScoringAllowed(tournamentId, gradeId, current);
   const r = ref(getDb(), paths.finalsMatch(tournamentId, gradeId, current.id));
   const { snapshot } = await runTransaction(r, (curr) => {
     const base = (curr as FinalMatchData | null) ?? current;
@@ -820,6 +1155,7 @@ export async function submitFinalExtraEight(
   current: FinalMatchData,
   round: { scoreA: number; scoreB: number }
 ): Promise<void> {
+  await assertJapanCupChallengeScoringAllowed(tournamentId, gradeId, current);
   const r = ref(getDb(), paths.finalsMatch(tournamentId, gradeId, current.id));
   const { snapshot } = await runTransaction(r, (curr) => {
     const base = (curr as FinalMatchData | null) ?? current;
@@ -838,6 +1174,7 @@ export async function submitSuddenDeathCloser(
   current: FinalMatchData,
   closer: Closer
 ): Promise<void> {
+  await assertJapanCupChallengeScoringAllowed(tournamentId, gradeId, current);
   const r = ref(getDb(), paths.finalsMatch(tournamentId, gradeId, current.id));
   const { snapshot } = await runTransaction(r, (curr) => {
     const base = (curr as FinalMatchData | null) ?? current;
@@ -850,12 +1187,84 @@ export async function submitSuddenDeathCloser(
   }
 }
 
+export type BulkAddStudentRow = {
+  line?: number;
+  studentId: string;
+  name: string;
+  teamCodeOrId?: string;
+  divisionId?: "A" | "B";
+};
+
+export type BulkAddStudentsResult = {
+  saved: number;
+  errors: Array<{ line?: number; studentId?: string; message: string }>;
+};
+
 export async function addStudent(
   tournamentId: string,
   studentId: string,
-  student: StudentRecord
+  student: StudentRecord,
+  teams?: Record<string, TeamRecord> | null,
+  resolveOptions?: ResolveTeamIdOptions
 ): Promise<void> {
   const payload: Record<string, unknown> = { name: student.name };
-  if (student.teamId) payload.teamId = student.teamId;
+  if (student.teamId?.trim()) {
+    let teamId = student.teamId.trim();
+    if (teams) {
+      const resolved = resolveTeamId(teams, teamId, resolveOptions);
+      if (!resolved.ok) throw new Error(resolved.error);
+      teamId = resolved.teamId;
+    }
+    payload.teamId = teamId;
+  }
   await set(ref(getDb(), paths.student(tournamentId, studentId)), payload);
+}
+
+export async function bulkAddStudents(
+  tournamentId: string,
+  rows: BulkAddStudentRow[],
+  teams: Record<string, TeamRecord>,
+  resolveOptions?: ResolveTeamIdOptions
+): Promise<BulkAddStudentsResult> {
+  const updates: Record<string, unknown> = {};
+  const errors: BulkAddStudentsResult["errors"] = [];
+  let saved = 0;
+
+  for (const row of rows) {
+    const studentId = row.studentId.trim();
+    const name = row.name.trim();
+    if (!studentId || !name) {
+      errors.push({
+        line: row.line,
+        studentId,
+        message: "studentId and name are required.",
+      });
+      continue;
+    }
+    let teamId: string | undefined;
+    if (row.teamCodeOrId?.trim()) {
+      const resolved = resolveTeamId(teams, row.teamCodeOrId, {
+        ...resolveOptions,
+        divisionId: row.divisionId ?? resolveOptions?.divisionId,
+      });
+      if (!resolved.ok) {
+        errors.push({
+          line: row.line,
+          studentId,
+          message: resolved.error,
+        });
+        continue;
+      }
+      teamId = resolved.teamId;
+    }
+    const payload: Record<string, unknown> = { name };
+    if (teamId) payload.teamId = teamId;
+    updates[paths.student(tournamentId, studentId)] = payload;
+    saved += 1;
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await update(ref(getDb()), updates);
+  }
+  return { saved, errors };
 }

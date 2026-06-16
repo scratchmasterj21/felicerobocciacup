@@ -8,22 +8,26 @@ export function viewerGradeFromParam(value: string | null): ViewerGradeId | null
   return null;
 }
 
-function truthyParam(v: string | null): boolean {
-  if (v == null) return false;
-  const x = v.toLowerCase();
-  return v === "1" || x === "true" || x === "yes";
-}
-
 /**
- * Live view URL flags: `?display=1`, `?kiosk=1`, `?grade=G3` (with optional `tournamentId=`).
+ * Live view URL query params: `?tournamentId=cup2026&grade=G3`.
+ * Legacy `display` / `kiosk` params are ignored (live view is always broadcast styling).
  */
 export function parseViewerDisplayParams(search: string) {
   const p = new URLSearchParams(
     search.startsWith("?") ? search.slice(1) : search
   );
   return {
-    display: truthyParam(p.get("display")),
-    kiosk: truthyParam(p.get("kiosk")),
     grade: viewerGradeFromParam(p.get("grade")),
   };
+}
+
+/** Build the public live view path for a grade and tournament. */
+export function buildLiveViewHref(
+  tournamentId: string,
+  grade: string
+): string {
+  const p = new URLSearchParams();
+  if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
+  p.set("grade", grade);
+  return `/?${p.toString()}`;
 }

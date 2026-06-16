@@ -1,4 +1,10 @@
 import type { FinalMatchData } from "@/lib/tournament/types";
+import type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
+import {
+  findGradeChampionshipMatch,
+  resolveJapanCupChallengeDisplayMatch,
+  resolveTrueGradeChampion,
+} from "@/lib/tournament/japanCupChallenge";
 import { formatScheduleTokyo } from "@/lib/schedule/tokyo";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getBracketMatchDisplay } from "@/lib/tournament/bracketMatchDisplay";
@@ -13,6 +19,8 @@ export function BracketRounds({
   winnerBannerIcon = "🏆",
   footerHint,
   projectionMode,
+  finalsGradeMeta,
+  gradeId,
 }: {
   matches: FinalMatchData[];
   nameById: Map<string, string>;
@@ -26,7 +34,20 @@ export function BracketRounds({
   footerHint?: string;
   /** Dark arena styling for live projection (`?display=1`). */
   projectionMode?: boolean;
+  /** When Japan Cup challenge is enabled, drives true grade champion banner. */
+  finalsGradeMeta?: FinalsGradeMeta | null;
+  /** Grade id for Japan Cup challenge preview when the match node is not written yet. */
+  gradeId?: string;
 }) {
+  const bracketMatches = useMemo(
+    () => matches.filter((m) => m.matchKind !== "japanCupChallenge"),
+    [matches]
+  );
+  const japanCupChallengeMatch = useMemo(() => {
+    const gid = gradeId ?? matches[0]?.gradeId;
+    if (!gid) return matches.find((m) => m.matchKind === "japanCupChallenge");
+    return resolveJapanCupChallengeDisplayMatch(matches, finalsGradeMeta, gid);
+  }, [matches, finalsGradeMeta, gradeId]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState<number>(0);
 
@@ -42,7 +63,7 @@ export function BracketRounds({
 
   const rounds = useMemo(() => {
     const m = new Map<number, FinalMatchData[]>();
-    for (const x of matches) {
+    for (const x of bracketMatches) {
       const arr = m.get(x.roundIndex) ?? [];
       arr.push(x);
       m.set(x.roundIndex, arr);
@@ -51,35 +72,35 @@ export function BracketRounds({
       arr.sort((a, b) => a.slotInRound - b.slotInRound);
     }
     return [...m.entries()].sort((a, b) => a[0] - b[0]);
-  }, [matches]);
+  }, [bracketMatches]);
   const byId = useMemo(
-    () => new Map(matches.map((m) => [m.id, m] as const)),
-    [matches]
+    () => new Map(bracketMatches.map((m) => [m.id, m] as const)),
+    [bracketMatches]
   );
   const byRoundAndSlot = useMemo(() => {
     const m = new Map<string, FinalMatchData>();
-    for (const match of matches) {
+    for (const match of bracketMatches) {
       m.set(`${match.roundIndex}:${match.slotInRound}`, match);
     }
     return m;
-  }, [matches]);
+  }, [bracketMatches]);
 
   const splitChampionMode = (() => {
-    const groups = new Set(matches.map((m) => m.bracketGroup ?? "U"));
+    const groups = new Set(bracketMatches.map((m) => m.bracketGroup ?? "U"));
     // Split layout should activate whenever both League A and B exist,
     // even if older/generated data does not yet include the grade-final "U" node.
     return groups.has("A") && groups.has("B");
   })();
   const maxRoundByGroup = (() => {
     const out = new Map<string, number>();
-    for (const m of matches) {
+    for (const m of bracketMatches) {
       const g = m.bracketGroup ?? "U";
       out.set(g, Math.max(out.get(g) ?? 0, m.roundIndex));
     }
     return out;
   })();
 
-  if (matches.length === 0) {
+  if (bracketMatches.length === 0) {
     return (
       <p
         className={
@@ -137,9 +158,14 @@ export function BracketRounds({
   const FOOTER_BAND_H = 80;
   const FOOTER_BOTTOM_INSET = 8;
   const maxCardBottom = Math.max(
-    ...matches.map((m) => centerYForMatch(m) + CARD_H / 2)
+    ...bracketMatches.map((m) => centerYForMatch(m) + CARD_H / 2)
   );
-  const minHFromCards = maxCardBottom + 12 + FOOTER_BAND_H + FOOTER_BOTTOM_INSET;
+  const JC_CARD_H = 100;
+  const jcExtraH =
+    japanCupChallengeMatch && !projectionMode
+      ? CARD_H / 2 + 36 + JC_CARD_H + 16
+      : 0;
+  const minHFromCards = maxCardBottom + 12 + FOOTER_BAND_H + FOOTER_BOTTOM_INSET + jcExtraH;
   const heuristicH = HEADER_H + PAD_Y + INNER_H + PAD_Y;
   const canvasH = Math.max(heuristicH, minHFromCards);
 
@@ -155,8 +181,8 @@ export function BracketRounds({
   // Right/left safety space for mirrored split brackets (A/B + grade final).
   // Keep moderate padding so layout stays larger while avoiding edge clipping.
   const CANVAS_EDGE_PAD = Math.floor(CARD_W * 0.6);
-  const rawMinX = Math.min(...matches.map((m) => rawXForMatch(m)));
-  const rawMaxX = Math.max(...matches.map((m) => rawXForMatch(m) + CARD_W));
+  const rawMinX = Math.min(...bracketMatches.map((m) => rawXForMatch(m)));
+  const rawMaxX = Math.max(...bracketMatches.map((m) => rawXForMatch(m) + CARD_W));
   const rawContentW = Math.max(1, rawMaxX - rawMinX);
   const canvasW = Math.max(
     fallbackCanvasW,
@@ -174,15 +200,26 @@ export function BracketRounds({
     byRoundAndSlot.get(`${roundIndex}:${slotInRound}`);
 
   const leagueFinalA = splitChampionMode
-    ? matches.find((m) => (m.bracketGroup ?? "U") === "A" && m.roundIndex === maxRoundA)
+    ? bracketMatches.find((m) => (m.bracketGroup ?? "U") === "A" && m.roundIndex === maxRoundA)
     : undefined;
   const leagueFinalB = splitChampionMode
-    ? matches.find((m) => (m.bracketGroup ?? "U") === "B" && m.roundIndex === maxRoundB)
+    ? bracketMatches.find((m) => (m.bracketGroup ?? "U") === "B" && m.roundIndex === maxRoundB)
     : undefined;
 
   const lastRoundMatches = rounds[roundCount - 1]?.[1] ?? [];
-  const finalMatch = lastRoundMatches[0];
-  const champion = finalMatch?.winnerTeamId ? label(finalMatch.winnerTeamId) : null;
+  const gradeChampionshipMatch = findGradeChampionshipMatch(matches);
+  const finalMatch = gradeChampionshipMatch ?? lastRoundMatches[0];
+  const trueChampionId = resolveTrueGradeChampion(matches, finalsGradeMeta);
+  const bannerTitle = finalsGradeMeta?.japanCupChallenge?.enabled
+    ? "True Grade Champion"
+    : winnerBannerTitle;
+  const champion = trueChampionId
+    ? label(trueChampionId)
+    : finalsGradeMeta?.japanCupChallenge?.enabled
+      ? null
+      : finalMatch?.winnerTeamId
+        ? label(finalMatch.winnerTeamId)
+        : null;
 
   const defaultFooter = footerHint ?? "16 min regulation + 8 min extra if tied";
   const p = Boolean(projectionMode);
@@ -229,7 +266,7 @@ export function BracketRounds({
                     : "text-[11px] uppercase tracking-[0.16em] opacity-85"
                 }
               >
-                {winnerBannerTitle}
+                {bannerTitle}
               </div>
               <div className="text-2xl font-display font-semibold">
                 {champion ?? "TBD"}
@@ -319,7 +356,7 @@ export function BracketRounds({
                     : "text-[10px] uppercase tracking-wide text-[#8a6b00]"
                 }
               >
-                Japan Cup
+                Japan Cup qualifier
               </div>
             </div>
           ) : null}
@@ -371,7 +408,7 @@ export function BracketRounds({
                     : "text-[10px] uppercase tracking-wide text-[#8a6b00]"
                 }
               >
-                Japan Cup
+                Japan Cup qualifier
               </div>
             </div>
           ) : null}
@@ -489,6 +526,51 @@ export function BracketRounds({
               })}
             </div>
           ))}
+
+          {japanCupChallengeMatch && !p ? (
+            <div
+              className="absolute z-20 -translate-x-1/2 pointer-events-none"
+              style={{
+                left: `${
+                  splitChampionMode
+                    ? championX + xOffset
+                    : finalMatch
+                      ? xForMatch(finalMatch) + CARD_W / 2
+                      : canvasW / 2
+                }px`,
+                top: `${
+                  (finalMatch ? centerYForMatch(finalMatch) : championCenterY) +
+                  CARD_H / 2 +
+                  36
+                }px`,
+                width: `${CARD_W}px`,
+              }}
+            >
+              <div
+                className={
+                  p
+                    ? "text-[10px] uppercase tracking-wide text-cup-signalMuted text-center mb-1"
+                    : "text-[10px] uppercase tracking-wide text-[#8a6b00] text-center mb-1"
+                }
+              >
+                Japan Cup challenge
+              </div>
+              <article
+                className={
+                  p
+                    ? "rounded-lg border border-cup-stageBorder bg-cup-stageElevated shadow-md overflow-hidden"
+                    : "rounded-lg border border-cup-line bg-white shadow-sm overflow-hidden"
+                }
+              >
+                <div className="h-1 bg-amber-500" />
+                <div className="px-3 py-2 text-sm leading-tight">
+                  <div className="truncate">{label(japanCupChallengeMatch.teamAId)}</div>
+                  <div className="truncate text-cup-muted text-xs">vs</div>
+                  <div className="truncate">{label(japanCupChallengeMatch.teamBId)}</div>
+                </div>
+              </article>
+            </div>
+          ) : null}
 
           <div
             className={

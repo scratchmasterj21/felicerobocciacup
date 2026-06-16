@@ -5,6 +5,11 @@ import {
   POINTS_WIN,
 } from "./types";
 import { regulationTotals } from "./roundRobin";
+import { fairPlayPointsOrDefault } from "./fairPlay";
+
+export interface RankStandingsOptions {
+  fairPlayByTeamId?: Map<string, number>;
+}
 
 function emptyRow(teamId: string): Omit<StandingRow, "rank"> {
   return {
@@ -68,6 +73,18 @@ export function aggregateStandingsFromMatches(
   return map;
 }
 
+function attachFairPlay(
+  row: Omit<StandingRow, "rank">,
+  fairPlayByTeamId: Map<string, number>
+): Omit<StandingRow, "rank"> & { fairPlayPoints: number; totalScore: number } {
+  const fairPlayPoints = fairPlayPointsOrDefault(fairPlayByTeamId.get(row.teamId));
+  return {
+    ...row,
+    fairPlayPoints,
+    totalScore: row.leaguePoints + fairPlayPoints,
+  };
+}
+
 function primaryCompare(
   a: Omit<StandingRow, "rank">,
   b: Omit<StandingRow, "rank">
@@ -78,10 +95,24 @@ function primaryCompare(
   return 0;
 }
 
+function primaryCompareWithFairPlay(
+  a: Omit<StandingRow, "rank"> & { totalScore: number },
+  b: Omit<StandingRow, "rank"> & { totalScore: number }
+): number {
+  if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+  return primaryCompare(a, b);
+}
+
 function samePrimaryTie(
   a: Omit<StandingRow, "rank">,
-  b: Omit<StandingRow, "rank">
+  b: Omit<StandingRow, "rank">,
+  fairPlay?: Map<string, number>
 ): boolean {
+  if (fairPlay) {
+    const ta = attachFairPlay(a, fairPlay);
+    const tb = attachFairPlay(b, fairPlay);
+    if (ta.totalScore !== tb.totalScore) return false;
+  }
   return (
     a.leaguePoints === b.leaguePoints &&
     a.goalDiff === b.goalDiff &&
@@ -91,7 +122,8 @@ function samePrimaryTie(
 
 function miniLeagueCompare(
   teamIds: string[],
-  matches: QualifyingMatchData[]
+  matches: QualifyingMatchData[],
+  fairPlay?: Map<string, number>
 ): (x: string, y: string) => number {
   const completed = matches.filter(
     (m) =>
@@ -105,32 +137,58 @@ function miniLeagueCompare(
   return (x, y) => {
     const rx = sub.get(x)!;
     const ry = sub.get(y)!;
+    if (fairPlay) {
+      const c = primaryCompareWithFairPlay(
+        attachFairPlay(rx, fairPlay),
+        attachFairPlay(ry, fairPlay)
+      );
+      if (c !== 0) return c;
+      return x.localeCompare(y);
+    }
     const c = primaryCompare(rx, ry);
     if (c !== 0) return c;
     return x.localeCompare(y);
   };
 }
 
-/** Tie-break: leaguePts -> GD -> GF -> head-to-head mini-league -> teamId */
+/** Tie-break: leaguePts -> GD -> GF -> head-to-head mini-league -> teamId; with Fair Play: totalScore first. */
 export function rankStandings(
   teamIds: string[],
-  matches: QualifyingMatchData[]
+  matches: QualifyingMatchData[],
+  options?: RankStandingsOptions
 ): StandingRow[] {
+  const fairPlay = options?.fairPlayByTeamId;
   const map = aggregateStandingsFromMatches(teamIds, matches);
   const rows = teamIds.map((id) => map.get(id)!);
-  rows.sort(primaryCompare);
+  if (fairPlay) {
+    rows.sort((a, b) =>
+      primaryCompareWithFairPlay(attachFairPlay(a, fairPlay), attachFairPlay(b, fairPlay))
+    );
+  } else {
+    rows.sort(primaryCompare);
+  }
   const result: StandingRow[] = [];
   let i = 0;
   let rankCounter = 1;
   while (i < rows.length) {
     let j = i + 1;
-    while (j < rows.length && samePrimaryTie(rows[i], rows[j])) j++;
+    while (j < rows.length && samePrimaryTie(rows[i], rows[j], fairPlay)) j++;
     const group = rows.slice(i, j).map((r) => r.teamId);
-    const cmp = miniLeagueCompare(group, matches);
+    const cmp = miniLeagueCompare(group, matches, fairPlay);
     const ordered = [...group].sort(cmp);
     for (const tid of ordered) {
       const base = map.get(tid)!;
-      result.push({ ...base, rank: rankCounter });
+      if (fairPlay) {
+        const fp = attachFairPlay(base, fairPlay);
+        result.push({
+          ...base,
+          fairPlayPoints: fp.fairPlayPoints,
+          totalScore: fp.totalScore,
+          rank: rankCounter,
+        });
+      } else {
+        result.push({ ...base, rank: rankCounter });
+      }
       rankCounter += 1;
     }
     i = j;

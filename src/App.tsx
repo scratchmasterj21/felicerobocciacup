@@ -3,6 +3,7 @@ import { Layout } from "@/components/Layout";
 import { ViewerPage } from "@/pages/ViewerPage";
 import { TeamViewerPage } from "@/pages/TeamViewerPage";
 import { AdminDashboard } from "@/pages/AdminDashboard";
+import { FairPlayTeacherPage } from "@/pages/FairPlayTeacherPage";
 import { AdminLoginPage } from "@/pages/AdminLoginPage";
 import { RequireAuth } from "@/components/RequireAuth";
 import { ADMIN_APP_ROUTES } from "@/lib/auth/admin";
@@ -13,6 +14,7 @@ export function App() {
       <Route element={<Layout />}>
         <Route index element={<ViewerPage />} />
         <Route path="t/:tournamentId/team/:teamId" element={<TeamViewerPage />} />
+        <Route path="fair-play" element={<FairPlayTeacherPage />} />
         <Route path={ADMIN_APP_ROUTES.login} element={<AdminLoginPage />} />
         <Route
           path={ADMIN_APP_ROUTES.root}
