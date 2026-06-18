@@ -13,6 +13,7 @@ export function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route index element={<ViewerPage />} />
+        <Route path="interschool" element={<ViewerPage />} />
         <Route path="t/:tournamentId/team/:teamId" element={<TeamViewerPage />} />
         <Route path="fair-play" element={<FairPlayTeacherPage />} />
         <Route path={ADMIN_APP_ROUTES.login} element={<AdminLoginPage />} />

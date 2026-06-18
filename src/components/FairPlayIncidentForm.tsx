@@ -9,7 +9,7 @@ import {
   type FairPlayCategoryKey,
 } from "@/lib/tournament/fairPlay";
 import { divisionLabel } from "@/lib/tournament/divisionLabels";
-import { VIEWER_GRADES } from "@/lib/viewerDisplay";
+import { FELICE_CUP_GRADE_IDS } from "@/lib/tournament/grades";
 
 export function FairPlayIncidentForm({
   tournamentId,
@@ -172,7 +172,7 @@ export function FairPlayIncidentForm({
               setStudentId("");
             }}
           >
-            {VIEWER_GRADES.map((g) => (
+            {FELICE_CUP_GRADE_IDS.map((g) => (
               <option key={g} value={g}>
                 {g}
               </option>

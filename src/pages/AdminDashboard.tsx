@@ -124,10 +124,18 @@ import {
   JapanCupChallengeScoring,
   JapanCupConfigPanel,
 } from "@/components/JapanCupFinalsBlock";
-import { buildLiveViewHref } from "@/lib/viewerDisplay";
+import {
+  absoluteLiveViewUrl,
+  buildFeliceCupLiveViewHref,
+  buildInterschoolLiveViewHref,
+} from "@/lib/viewerDisplay";
 import { finalMatchHasScores } from "@/lib/tournament/finalMatchProgress";
-
-const GRADES = ["G1", "G2", "G3", "G4", "G5", "G6"] as const;
+import {
+  gradeLabel,
+  INTERSCHOOL_GRADE_ID,
+  normalizeWorkingGrade,
+  workingGradesForTournament,
+} from "@/lib/tournament/grades";
 
 /** Set `VITE_SHOW_STUDENTS=true` in `.env.local` to show the Students admin block. */
 const SHOW_STUDENTS_SECTION = import.meta.env.VITE_SHOW_STUDENTS === "true";
@@ -232,15 +240,6 @@ export function AdminDashboard() {
   const [resFilter, setResFilter] = useState<GridFilter>("unfinished");
   const [finalsFilter, setFinalsFilter] = useState<GridFilter>("unfinished");
 
-  const liveViewHref = useMemo(
-    () => buildLiveViewHref(tournamentId, grade),
-    [tournamentId, grade]
-  );
-  const liveViewDisplayUrl = useMemo(
-    () => `${window.location.origin}${liveViewHref}`,
-    [liveViewHref]
-  );
-
   const fairPlayTeacherHref = useMemo(() => {
     const p = new URLSearchParams();
     if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
@@ -256,6 +255,10 @@ export function AdminDashboard() {
   useEffect(() => {
     return subscribeTournamentMeta(tournamentId, setMeta);
   }, [tournamentId]);
+  useEffect(() => {
+    if (!meta) return;
+    setGrade((g) => normalizeWorkingGrade(meta, g));
+  }, [meta?.tournamentKind]);
   useEffect(() => {
     if (!meta) return;
     setMetaLabelA(meta.divisionLabelA ?? "");
@@ -275,6 +278,18 @@ export function AdminDashboard() {
 
   const isInterSchoolTournament = meta?.tournamentKind === "interSchool";
   const fairPlayEnabled = isFairPlayEnabled(meta);
+  const workingGrades = workingGradesForTournament(meta);
+
+  const liveViewHref = useMemo(() => {
+    if (isInterSchoolTournament) {
+      return buildInterschoolLiveViewHref(tournamentId);
+    }
+    return buildFeliceCupLiveViewHref(tournamentId, grade);
+  }, [tournamentId, grade, isInterSchoolTournament]);
+  const liveViewDisplayUrl = useMemo(
+    () => absoluteLiveViewUrl(liveViewHref),
+    [liveViewHref]
+  );
   const isUnified =
     meta?.qualifyingMode === "unified" || isInterSchoolTournament;
   const fpOpts = (teamIds: string[]) =>
@@ -1382,20 +1397,26 @@ export function AdminDashboard() {
             </Link>
           ) : null}
           <div className="inline-flex h-10 items-center gap-2 rounded-lg border border-cup-line bg-white px-3">
-            <span className="text-xs text-cup-muted whitespace-nowrap">Live grade</span>
-            <select
-              id="admin-live-grade"
-              className="min-w-[3.25rem] shrink-0 cursor-pointer border-0 bg-transparent py-0 text-sm font-medium text-cup-ink focus:outline-none focus:ring-0"
-              value={grade}
-              onChange={(e) => setGrade(e.target.value)}
-              aria-label="Live view grade"
-            >
-              {GRADES.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
-            </select>
+            <span className="text-xs text-cup-muted whitespace-nowrap">
+              {isInterSchoolTournament ? "Live event" : "Live grade"}
+            </span>
+            {isInterSchoolTournament ? (
+              <span className="text-sm font-medium text-cup-ink">{gradeLabel(grade, meta)}</span>
+            ) : (
+              <select
+                id="admin-live-grade"
+                className="min-w-[3.25rem] shrink-0 cursor-pointer border-0 bg-transparent py-0 text-sm font-medium text-cup-ink focus:outline-none focus:ring-0"
+                value={grade}
+                onChange={(e) => setGrade(e.target.value)}
+                aria-label="Live view grade"
+              >
+                {workingGrades.map((g) => (
+                  <option key={g} value={g}>
+                    {gradeLabel(g, meta)}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <code
             className="hidden lg:inline-block max-w-[min(24rem,40vw)] truncate text-xs text-cup-muted bg-white border border-cup-line rounded-lg px-3 py-2.5"
@@ -1512,11 +1533,13 @@ export function AdminDashboard() {
             {isInterSchoolTournament ? (
               <div className="border-t border-cup-line pt-4 text-sm text-cup-muted max-w-xl space-y-1">
                 <p>
-                  <strong className="text-cup-ink">School vs other school</strong> uses a{" "}
-                  <strong>unified</strong> preliminary league (Pool A only) and rank-based
-                  finals seeds. Plan roughly <strong>1 hour preliminary + 1 hour finals</strong>;
-                  register two schools, assign every team, then generate cross-school fixtures
-                  when possible.
+                  <strong className="text-cup-ink">School vs other school</strong> uses grade{" "}
+                  <strong>{INTERSCHOOL_GRADE_ID}</strong> (not Felice Cup G1–G6), a{" "}
+                  <strong>unified</strong> preliminary league (Pool A only), and rank-based finals
+                  seeds. Live view: <code>/interschool</code>. Plan roughly{" "}
+                  <strong>1 hour preliminary + 1 hour finals</strong>; register schools, assign
+                  every team a school, then generate fixtures (cross-school when exactly two
+                  schools are in the pool; full round-robin if three or more).
                 </p>
                 <p className="text-xs">
                   Preliminary layout is fixed for this kind. To switch, delete tournament meta or
@@ -1756,7 +1779,15 @@ export function AdminDashboard() {
         {isUnified ? (
           <p className="text-sm text-cup-ink bg-cup-paper/80 border border-cup-line rounded-lg px-3 py-2">
             <strong>Unified mode:</strong> add every team to Pool A only. Pool B is hidden.
-            Generate the round-robin for Pool A to run one league before finals.
+            {isInterSchoolTournament ? (
+              <>
+                {" "}
+                Interschool teams use grade <strong>{INTERSCHOOL_GRADE_ID}</strong> (not G1–G6).
+                Assign each team a school for cross-school fixtures.
+              </>
+            ) : (
+              <> Generate the round-robin for Pool A to run one league before finals.</>
+            )}
           </p>
         ) : null}
         <div
@@ -2499,6 +2530,7 @@ export function AdminDashboard() {
             onFilterChange={setFinalsFilter}
           />
         </div>
+        {!isInterSchoolTournament ? (
         <JapanCupConfigPanel
           grade={grade}
           jcEnabled={jcEnabled}
@@ -2511,6 +2543,7 @@ export function AdminDashboard() {
           showExistingBracketWarning={jcExistingDataWarning}
           showChallengeProgressWarning={jcChallengeHasProgress}
         />
+        ) : null}
         <label className="flex items-start gap-2 text-sm cursor-pointer max-w-xl">
           <input
             type="checkbox"

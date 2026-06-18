@@ -22,6 +22,7 @@ export function BracketRounds({
   projectionMode,
   finalsGradeMeta,
   gradeId,
+  hideJapanCupLabels,
 }: {
   matches: FinalMatchData[];
   nameById: Map<string, string>;
@@ -39,6 +40,8 @@ export function BracketRounds({
   finalsGradeMeta?: FinalsGradeMeta | null;
   /** Grade id for Japan Cup challenge preview when the match node is not written yet. */
   gradeId?: string;
+  /** Hide Japan Cup qualifier crowns (e.g. interschool events). */
+  hideJapanCupLabels?: boolean;
 }) {
   const bracketMatches = useMemo(
     () => matches.filter((m) => m.matchKind !== "japanCupChallenge"),
@@ -396,7 +399,7 @@ export function BracketRounds({
             )}
           </svg>
 
-          {splitChampionMode && leagueFinalA ? (
+          {splitChampionMode && leagueFinalA && !hideJapanCupLabels ? (
             <div
               className={
                 p
@@ -452,7 +455,7 @@ export function BracketRounds({
               League B
             </div>
           ) : null}
-          {splitChampionMode && leagueFinalB ? (
+          {splitChampionMode && leagueFinalB && !hideJapanCupLabels ? (
             <div
               className="absolute z-20 -translate-x-1/2 text-center pointer-events-none"
               style={{

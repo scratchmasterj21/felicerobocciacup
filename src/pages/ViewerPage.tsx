@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useTournamentId } from "@/hooks/useTournamentId";
 import {
   getDivisionLeagueCount,
@@ -39,6 +39,12 @@ import {
   partitionTeamsIntoLeaguesFromSaved,
 } from "@/lib/tournament/leagueSplit";
 import { parseViewerDisplayParams } from "@/lib/viewerDisplay";
+import {
+  gradeLabel,
+  INTERSCHOOL_GRADE_ID,
+  isInterSchoolTournament,
+  normalizeWorkingGrade,
+} from "@/lib/tournament/grades";
 import { subscribeStudents, subscribeFinalsGradeMeta } from "@/lib/firebase/fairPlayService";
 import type { StudentRecord } from "@/lib/firebase/tournamentService";
 import type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
@@ -46,6 +52,9 @@ import type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
 const LIVE_FALLBACK_LOGO_SRC = "https://i.imgur.com/RpJzD9D.png";
 
 export function ViewerPage() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const isInterschoolRoute = pathname === "/interschool";
   const [tournamentId, setTournamentId] = useTournamentId();
   const [searchParams] = useSearchParams();
   const [grade, setGrade] = useState<string>("G1");
@@ -94,9 +103,27 @@ export function ViewerPage() {
   }, [searchParams, setTournamentId]);
 
   useEffect(() => {
+    if (isInterschoolRoute) {
+      setGrade(INTERSCHOOL_GRADE_ID);
+      return;
+    }
     const g = parseViewerDisplayParams(searchParams.toString()).grade;
-    if (g) setGrade(g);
-  }, [searchParams]);
+    if (g && g !== INTERSCHOOL_GRADE_ID) setGrade(g);
+  }, [searchParams, isInterschoolRoute]);
+
+  useEffect(() => {
+    if (!meta) return;
+    if (isInterSchoolTournament(meta)) {
+      setGrade(INTERSCHOOL_GRADE_ID);
+      if (!isInterschoolRoute) {
+        const p = new URLSearchParams();
+        if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
+        navigate(`/interschool?${p.toString()}`, { replace: true });
+      }
+      return;
+    }
+    setGrade((g) => normalizeWorkingGrade(meta, g));
+  }, [meta, isInterschoolRoute, navigate, tournamentId]);
 
   useEffect(() => {
     return subscribeTournamentMeta(tournamentId, (m) => setMeta(m));
@@ -122,9 +149,9 @@ export function ViewerPage() {
     return subscribeFinalsGradeMeta(tournamentId, grade, setFinalsGradeMeta);
   }, [tournamentId, grade]);
 
+  const isInterSchool = isInterSchoolTournament(meta);
   const isUnified =
-    meta?.qualifyingMode === "unified" ||
-    meta?.tournamentKind === "interSchool";
+    meta?.qualifyingMode === "unified" || isInterSchool;
   const fairPlayEnabled = isFairPlayEnabled(meta);
   const fpOpts = (teamIds: string[]) =>
     rankStandingsFairPlayOptions(students, teamIds, fairPlayEnabled, teams);
@@ -339,6 +366,15 @@ export function ViewerPage() {
     "font-displayWide text-2xl md:text-3xl font-semibold text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide";
   const bodyMuted = "text-base text-slate-400 max-w-2xl";
   const bodyMutedNarrow = "text-base text-slate-400 max-w-xl";
+  const displayGradeLabel = gradeLabel(grade, meta);
+  const interschoolSubtitle = useMemo(() => {
+    if (!isInterSchool) return displayGradeLabel;
+    const a = meta?.divisionLabelA?.trim();
+    const b = meta?.divisionLabelB?.trim();
+    if (a && b) return `${a} vs ${b}`;
+    if (a) return a;
+    return "Interschool";
+  }, [isInterSchool, displayGradeLabel, meta?.divisionLabelA, meta?.divisionLabelB]);
 
   return (
     <div className="projection-shell space-y-10 rounded-2xl px-2 py-3 md:px-4 md:py-5">
@@ -349,14 +385,14 @@ export function ViewerPage() {
           ) : (
             <img
               src={LIVE_FALLBACK_LOGO_SRC}
-              alt="Felice Roboccia Cup"
+              alt={isInterSchool ? "Interschool event" : "Felice Roboccia Cup"}
               className="max-h-[min(22vh,200px)] w-auto object-contain mx-auto"
               decoding="async"
             />
           )}
         </h1>
         <p className="font-displayWide text-cup-signal text-xl md:text-3xl mt-3 font-semibold tracking-wide">
-          {grade}
+          {interschoolSubtitle}
         </p>
         {meta && Number.isFinite(Number(meta.schoolYear)) ? (
           <p className="text-slate-400 text-lg mt-1 tabular-nums">{meta.schoolYear}</p>
@@ -365,7 +401,9 @@ export function ViewerPage() {
 
       {isUnified ? (
         <p className={bodyMutedNarrow}>
-          Unified preliminary: one league in Pool A; Pool B is not used for this tournament.
+          {isInterSchool
+            ? "School vs school preliminary: one combined league in Pool A. Assign every team a school; with two schools, fixtures are cross-school only."
+            : "Unified preliminary: one league in Pool A; Pool B is not used for this tournament."}
         </p>
       ) : null}
 
@@ -589,8 +627,10 @@ export function ViewerPage() {
       </section>
 
       <section>
-        <h2 className={`${h2Major} mb-3`}>Finals bracket — {grade}</h2>
-        {japanCupChallengeDisplay ? (
+        <h2 className={`${h2Major} mb-3`}>
+          Finals bracket — {isInterSchool ? "Interschool" : grade}
+        </h2>
+        {!isInterSchool && japanCupChallengeDisplay ? (
           <div className="mb-6">
             <JapanCupChallengeMatchup
               match={japanCupChallengeDisplay}
@@ -606,8 +646,9 @@ export function ViewerPage() {
               matches={finalsUnified}
               nameById={nameById}
               projectionMode
-              finalsGradeMeta={finalsGradeMeta}
+              finalsGradeMeta={isInterSchool ? null : finalsGradeMeta}
               gradeId={grade}
+              hideJapanCupLabels={isInterSchool}
             />
           </div>
         ) : (
@@ -620,8 +661,9 @@ export function ViewerPage() {
                 matches={finalsSplitMerged}
                 nameById={nameById}
                 projectionMode
-                finalsGradeMeta={finalsGradeMeta}
+                finalsGradeMeta={isInterSchool ? null : finalsGradeMeta}
                 gradeId={grade}
+                hideJapanCupLabels={isInterSchool}
               />
             </div>
           </div>
