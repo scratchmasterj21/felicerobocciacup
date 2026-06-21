@@ -101,7 +101,7 @@ export function TeamViewerPage() {
   const [meta, setMeta] = useState<{
     name: string;
     schoolYear: number;
-    tournamentKind?: "intraSchool" | "interSchool";
+    tournamentKind?: "intraSchool" | "interSchool" | "practice";
     divisionLabelA?: string;
     divisionLabelB?: string;
     qualifyingMode?: "twoPools" | "unified";

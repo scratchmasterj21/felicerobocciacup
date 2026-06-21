@@ -47,6 +47,13 @@ export function buildInterschoolLiveViewHref(tournamentId: string): string {
   return `/interschool?${p.toString()}`;
 }
 
+/** Practice live view: `/practice?tournamentId=…` (all classes shown). */
+export function buildPracticeLiveViewHref(tournamentId: string): string {
+  const p = new URLSearchParams();
+  if (tournamentId.trim()) p.set("tournamentId", tournamentId.trim());
+  return `/practice?${p.toString()}`;
+}
+
 /** Build the public live view path for a grade and tournament. */
 export function buildLiveViewHref(
   tournamentId: string,

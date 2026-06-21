@@ -5,10 +5,16 @@ import { useTournamentId } from "@/hooks/useTournamentId";
 import { useAuth } from "@/hooks/useAuth";
 import { getFirebaseAuth } from "@/lib/firebase/config";
 import {
+  addPracticeMatch,
   addStudent,
   bulkAddStudents,
+  clearPracticeMatches,
+  completePracticeMatch,
   completeQualifyingMatch,
   createTournament,
+  deletePracticeMatch,
+  generatePracticeMatches,
+  subscribePracticeMatches,
   deleteTournamentMeta,
   deleteSchool,
   deleteFinalsForGrade,
@@ -48,6 +54,7 @@ import type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
 import type {
   FinalMatchData,
   MatchSchedule,
+  PracticeMatchData,
   QualifyingMatchData,
   ResurrectionMeta,
   ResurrectionPoolGroup,
@@ -77,6 +84,7 @@ import {
   type MatchScoreGridRow,
 } from "@/components/MatchScoreGrid";
 import { rankStandings } from "@/lib/tournament/standings";
+import { practiceMatchesToQualifying } from "@/lib/tournament/practice";
 import {
   isFairPlayEnabled,
   rankStandingsFairPlayOptions,
@@ -128,11 +136,13 @@ import {
   absoluteLiveViewUrl,
   buildFeliceCupLiveViewHref,
   buildInterschoolLiveViewHref,
+  buildPracticeLiveViewHref,
 } from "@/lib/viewerDisplay";
 import { finalMatchHasScores } from "@/lib/tournament/finalMatchProgress";
 import {
   gradeLabel,
   INTERSCHOOL_GRADE_ID,
+  isPracticeTournament,
   normalizeWorkingGrade,
   workingGradesForTournament,
 } from "@/lib/tournament/grades";
@@ -147,7 +157,7 @@ export function AdminDashboard() {
   const [meta, setMeta] = useState<{
     name: string;
     schoolYear: number;
-    tournamentKind?: "intraSchool" | "interSchool";
+    tournamentKind?: "intraSchool" | "interSchool" | "practice";
     divisionLabelA?: string;
     divisionLabelB?: string;
     qualifyingMode?: "twoPools" | "unified";
@@ -191,7 +201,7 @@ export function AdminDashboard() {
   const [newTournamentName, setNewTournamentName] = useState("Felice Roboccia Cup 2026");
   const [newSchoolYear, setNewSchoolYear] = useState(2026);
   const [newTournamentKind, setNewTournamentKind] = useState<
-    "intraSchool" | "interSchool"
+    "intraSchool" | "interSchool" | "practice"
   >("intraSchool");
 
   const [teamNameA, setTeamNameA] = useState("");
@@ -277,15 +287,19 @@ export function AdminDashboard() {
   }, [meta, grade]);
 
   const isInterSchoolTournament = meta?.tournamentKind === "interSchool";
+  const isPractice = isPracticeTournament(meta);
   const fairPlayEnabled = isFairPlayEnabled(meta);
   const workingGrades = workingGradesForTournament(meta);
 
   const liveViewHref = useMemo(() => {
+    if (isPractice) {
+      return buildPracticeLiveViewHref(tournamentId);
+    }
     if (isInterSchoolTournament) {
       return buildInterschoolLiveViewHref(tournamentId);
     }
     return buildFeliceCupLiveViewHref(tournamentId, grade);
-  }, [tournamentId, grade, isInterSchoolTournament]);
+  }, [tournamentId, grade, isInterSchoolTournament, isPractice]);
   const liveViewDisplayUrl = useMemo(
     () => absoluteLiveViewUrl(liveViewHref),
     [liveViewHref]
@@ -1464,15 +1478,23 @@ export function AdminDashboard() {
             Fair Play
           </a>
         ) : null}
-        <a href="#admin-preliminary" className="text-cup-ink hover:underline">
-          Preliminary
-        </a>
-        <a href="#admin-redemption" className="text-cup-ink hover:underline">
-          Redemption
-        </a>
-        <a href="#admin-finals" className="text-cup-ink hover:underline">
-          Finals
-        </a>
+        {isPractice ? (
+          <a href="#admin-practice" className="text-cup-ink hover:underline">
+            Practice
+          </a>
+        ) : (
+          <>
+            <a href="#admin-preliminary" className="text-cup-ink hover:underline">
+              Preliminary
+            </a>
+            <a href="#admin-redemption" className="text-cup-ink hover:underline">
+              Redemption
+            </a>
+            <a href="#admin-finals" className="text-cup-ink hover:underline">
+              Finals
+            </a>
+          </>
+        )}
       </nav>
 
       <section
@@ -1668,6 +1690,20 @@ export function AdminDashboard() {
                   <strong>School vs other school</strong> — special flow: unified league (Pool
                   A), cross-school fixtures when teams have two schools assigned, rank-based
                   finals. Budget time (e.g. ~1h preliminary + ~1h finals).
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="tournamentKind"
+                  className="mt-1"
+                  checked={newTournamentKind === "practice"}
+                  onChange={() => setNewTournamentKind("practice")}
+                />
+                <span>
+                  <strong>Practice matches</strong> — per-class internal games (e.g. G1A teams vs
+                  each other). Pick how many matches to play, score them preliminary-style, and
+                  show a live class ranking. No redemption, finals, or Fair Play.
                 </span>
               </label>
             </fieldset>
@@ -2045,6 +2081,16 @@ export function AdminDashboard() {
         </div>
       ) : null}
 
+      {isPractice ? (
+        <PracticeAdminSection
+          tournamentId={tournamentId}
+          grade={grade}
+          teams={teams}
+        />
+      ) : null}
+
+      {!isPractice ? (
+      <>
       <section
         id="admin-preliminary"
         className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
@@ -2724,7 +2770,432 @@ export function AdminDashboard() {
           )}
         </div>
       </section>
+      </>
+      ) : null}
     </div>
+  );
+}
+
+function PracticeAdminSection({
+  tournamentId,
+  grade,
+  teams,
+}: {
+  tournamentId: string;
+  grade: string;
+  teams: Record<
+    string,
+    { gradeId: string; divisionId: "A" | "B"; name: string; code?: string }
+  > | null;
+}) {
+  const [division, setDivision] = useState<"A" | "B">("A");
+  const [count, setCount] = useState("6");
+  const [manualA, setManualA] = useState("");
+  const [manualB, setManualB] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [practiceMatches, setPracticeMatches] = useState<Record<
+    string,
+    PracticeMatchData
+  > | null>(null);
+
+  useEffect(() => {
+    return subscribePracticeMatches(tournamentId, setPracticeMatches);
+  }, [tournamentId]);
+
+  const classTeams = useMemo(() => {
+    const out: Array<{ id: string; name: string }> = [];
+    for (const [id, t] of Object.entries(teams ?? {})) {
+      if (t.gradeId === grade && t.divisionId === division) {
+        out.push({ id, name: t.name });
+      }
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    return out;
+  }, [teams, grade, division]);
+
+  const classTeamIds = useMemo(
+    () => classTeams.map((t) => t.id),
+    [classTeams]
+  );
+
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [id, t] of Object.entries(teams ?? {})) m.set(id, t.name);
+    return m;
+  }, [teams]);
+
+  const classMatches = useMemo(() => {
+    const list = Object.values(practiceMatches ?? {}).filter(
+      (m) => m.gradeId === grade && m.divisionId === division
+    );
+    list.sort((a, b) => a.order - b.order);
+    return list;
+  }, [practiceMatches, grade, division]);
+
+  const standings = useMemo(
+    () => rankStandings(classTeamIds, practiceMatchesToQualifying(classMatches)),
+    [classMatches, classTeamIds]
+  );
+
+  const fullRoundRobin =
+    classTeamIds.length >= 2
+      ? (classTeamIds.length * (classTeamIds.length - 1)) / 2
+      : 0;
+  const classLabel = `${grade}${division}`;
+  const hasAnyPractice = Object.keys(practiceMatches ?? {}).length > 0;
+
+  async function onGenerate() {
+    setError(null);
+    const n = Math.floor(Number(count));
+    if (!Number.isFinite(n) || n <= 0) {
+      setError("Enter how many matches to generate.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await generatePracticeMatches(
+        tournamentId,
+        grade,
+        division,
+        n,
+        classTeamIds
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not generate matches.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onAddManual() {
+    setError(null);
+    if (!manualA || !manualB) {
+      setError("Pick both teams for a manual match.");
+      return;
+    }
+    if (manualA === manualB) {
+      setError("A practice match needs two different teams.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await addPracticeMatch(tournamentId, {
+        gradeId: grade,
+        divisionId: division,
+        teamAId: manualA,
+        teamBId: manualB,
+      });
+      setManualA("");
+      setManualB("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add match.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onClearAll() {
+    if (
+      !window.confirm(
+        "Delete ALL practice matches for every class? This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await clearPracticeMatches(tournamentId);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      id="admin-practice"
+      className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-5 scroll-mt-20"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-semibold">
+            Practice matches
+          </h2>
+          <p className="text-sm text-cup-muted mt-1">
+            Per-class internal games. Add teams under <strong>Teams</strong> for{" "}
+            {grade} {division}, then generate or add matches below.
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2 rounded-lg border border-cup-line bg-white px-3 py-2">
+          <span className="text-xs text-cup-muted">Class division</span>
+          <select
+            className="cursor-pointer border-0 bg-transparent text-sm font-medium focus:outline-none focus:ring-0"
+            value={division}
+            onChange={(e) => setDivision(e.target.value === "B" ? "B" : "A")}
+            aria-label="Class division"
+          >
+            <option value="A">A</option>
+            <option value="B">B</option>
+          </select>
+        </div>
+      </div>
+
+      <p className="text-sm bg-cup-paper/60 border border-cup-line rounded-lg px-3 py-2">
+        Class <strong>{classLabel}</strong>: {classTeamIds.length} team
+        {classTeamIds.length === 1 ? "" : "s"}.{" "}
+        {fullRoundRobin > 0
+          ? `A full round-robin is ${fullRoundRobin} match${
+              fullRoundRobin === 1 ? "" : "es"
+            } — generate fewer to fit a class session.`
+          : "Add at least two teams to this class to start."}
+      </p>
+
+      {error ? <p className="text-sm text-red-700">{error}</p> : null}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="border border-cup-line rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-semibold">Generate matches</h3>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-sm">
+              <span>How many matches</span>
+              <input
+                type="number"
+                min={1}
+                className="border border-cup-line rounded-md px-3 py-2 w-28"
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy || classTeamIds.length < 2}
+              onClick={() => void onGenerate()}
+              className="px-4 py-2 rounded-lg bg-cup-ink text-cup-paper text-sm font-medium disabled:opacity-50"
+            >
+              Generate
+            </button>
+          </div>
+          <p className="text-xs text-cup-muted">
+            Appends to the list and spreads teams evenly across the early
+            matches. Run again to add more.
+          </p>
+        </div>
+
+        <div className="border border-cup-line rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-semibold">Add one match</h3>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Team A</span>
+              <select
+                className="border border-cup-line rounded-md px-2 py-2 min-w-[120px]"
+                value={manualA}
+                onChange={(e) => setManualA(e.target.value)}
+              >
+                <option value="">—</option>
+                {classTeams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Team B</span>
+              <select
+                className="border border-cup-line rounded-md px-2 py-2 min-w-[120px]"
+                value={manualB}
+                onChange={(e) => setManualB(e.target.value)}
+              >
+                <option value="">—</option>
+                {classTeams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={busy || classTeamIds.length < 2}
+              onClick={() => void onAddManual()}
+              className="px-4 py-2 rounded-lg border border-cup-line bg-white text-sm font-medium disabled:opacity-50"
+            >
+              Add match
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold">
+            Matches — {classLabel} ({classMatches.length})
+          </h3>
+          {hasAnyPractice ? (
+            <button
+              type="button"
+              onClick={() => void onClearAll()}
+              className="text-xs text-red-700 hover:underline"
+            >
+              Clear all practice matches
+            </button>
+          ) : null}
+        </div>
+        {classMatches.length === 0 ? (
+          <p className="text-sm text-cup-muted border border-dashed border-cup-line rounded-lg px-3 py-4">
+            No practice matches for {classLabel} yet.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {classMatches.map((m, idx) => (
+              <PracticeMatchEditor
+                key={m.id}
+                m={m}
+                matchNumber={idx + 1}
+                nameById={nameById}
+                onSave={(reg) =>
+                  completePracticeMatch(tournamentId, m.id, reg)
+                }
+                onDelete={() => deletePracticeMatch(tournamentId, m.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-semibold">Class ranking — {classLabel}</h3>
+        <p className="text-xs text-cup-muted">
+          Win = 3, draw = 1, loss = 0 (same as the real preliminary). Practice
+          only — no qualification or finals.
+        </p>
+        <StandingsTable standings={standings} nameById={nameById} />
+      </div>
+    </section>
+  );
+}
+
+function PracticeMatchEditor({
+  m,
+  matchNumber,
+  nameById,
+  onSave,
+  onDelete,
+}: {
+  m: PracticeMatchData;
+  matchNumber: number;
+  nameById: Map<string, string>;
+  onSave: (reg: {
+    round1: { scoreA: number; scoreB: number };
+    round2: { scoreA: number; scoreB: number };
+  }) => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const [r1a, setR1a] = useState("0");
+  const [r1b, setR1b] = useState("0");
+  const [r2a, setR2a] = useState("0");
+  const [r2b, setR2b] = useState("0");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (m.regulation) {
+      setR1a(String(m.regulation.round1.scoreA));
+      setR1b(String(m.regulation.round1.scoreB));
+      setR2a(String(m.regulation.round2.scoreA));
+      setR2b(String(m.regulation.round2.scoreB));
+    }
+  }, [m.regulation]);
+
+  const teamA = nameById.get(m.teamAId) ?? m.teamAId;
+  const teamB = nameById.get(m.teamBId) ?? m.teamBId;
+
+  if (m.status === "COMPLETED" && m.regulation && m.outcome) {
+    const { totalA, totalB } = regulationTotals(m.regulation);
+    return (
+      <div className="flex items-center justify-between gap-3 border border-cup-line rounded-lg px-3 py-2 text-sm bg-cup-ink/5">
+        <div>
+          <span className="font-mono text-xs text-cup-muted">
+            Match {matchNumber}
+          </span>{" "}
+          · <strong>{teamA}</strong> vs <strong>{teamB}</strong> — {totalA}-
+          {totalB} ({m.outcome})
+        </div>
+        <button
+          type="button"
+          onClick={() => void onDelete()}
+          className="text-xs text-red-700 hover:underline shrink-0"
+        >
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await onSave({
+        round1: { scoreA: Number(r1a), scoreB: Number(r1b) },
+        round2: { scoreA: Number(r2a), scoreB: Number(r2b) },
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={submit}
+      className="border border-cup-line rounded-lg p-3 text-sm space-y-2 bg-white"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="font-mono text-xs text-cup-muted">
+          Match {matchNumber}
+        </div>
+        <button
+          type="button"
+          onClick={() => void onDelete()}
+          className="text-xs text-red-700 hover:underline"
+        >
+          Delete
+        </button>
+      </div>
+      <div>
+        <strong>{teamA}</strong> vs <strong>{teamB}</strong>
+      </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        <span className="text-cup-muted text-xs">R1</span>
+        <input
+          className="border rounded w-14 px-1 py-1"
+          value={r1a}
+          onChange={(e) => setR1a(e.target.value)}
+        />
+        <input
+          className="border rounded w-14 px-1 py-1"
+          value={r1b}
+          onChange={(e) => setR1b(e.target.value)}
+        />
+        <span className="text-cup-muted text-xs">R2</span>
+        <input
+          className="border rounded w-14 px-1 py-1"
+          value={r2a}
+          onChange={(e) => setR2a(e.target.value)}
+        />
+        <input
+          className="border rounded w-14 px-1 py-1"
+          value={r2b}
+          onChange={(e) => setR2b(e.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="ml-2 px-3 py-1 rounded bg-cup-accent text-white text-xs font-medium disabled:opacity-50"
+        >
+          Save
+        </button>
+      </div>
+    </form>
   );
 }
 

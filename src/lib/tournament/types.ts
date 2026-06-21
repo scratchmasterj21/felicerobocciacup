@@ -47,6 +47,26 @@ export interface QualifyingMatchData {
   schedule?: MatchSchedule;
 }
 
+/**
+ * Practice match: per-class internal game (e.g. G1A teams vs each other).
+ * Mirrors `QualifyingMatchData` scoring (preliminary style, draws allowed) plus
+ * a display `order`. Not part of real qualification/standings/finals.
+ */
+export interface PracticeMatchData {
+  id: string;
+  gradeId: string;
+  divisionId: DivisionId;
+  /** Display order within the practice list ("Match #"). */
+  order: number;
+  teamAId: string;
+  teamBId: string;
+  status: "SCHEDULED" | "COMPLETED";
+  regulation?: RegulationScores;
+  /** Present when COMPLETED. */
+  outcome?: QualifyingOutcome;
+  createdAt?: number;
+}
+
 export interface StandingRow {
   teamId: string;
   rank: number;

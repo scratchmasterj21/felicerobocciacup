@@ -4,7 +4,7 @@ export type FeliceCupGradeId = (typeof FELICE_CUP_GRADE_IDS)[number];
 export const INTERSCHOOL_GRADE_ID = "IS" as const;
 export type InterschoolGradeId = typeof INTERSCHOOL_GRADE_ID;
 
-export type TournamentKind = "intraSchool" | "interSchool";
+export type TournamentKind = "intraSchool" | "interSchool" | "practice";
 
 export type GradeMeta = {
   tournamentKind?: TournamentKind;
@@ -22,6 +22,10 @@ export function isInterschoolGradeId(id: string): id is InterschoolGradeId {
 
 export function isInterSchoolTournament(meta: GradeMeta): boolean {
   return meta?.tournamentKind === "interSchool";
+}
+
+export function isPracticeTournament(meta: GradeMeta): boolean {
+  return meta?.tournamentKind === "practice";
 }
 
 export function workingGradesForTournament(meta: GradeMeta): readonly string[] {

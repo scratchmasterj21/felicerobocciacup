@@ -10,7 +10,10 @@ export function Layout() {
     () => buildLiveViewHref(tournamentId, "G1"),
     [tournamentId]
   );
-  const home = pathname === "/" || pathname === "/interschool";
+  const home =
+    pathname === "/" ||
+    pathname === "/interschool" ||
+    pathname === "/practice";
   /** Single-team fan page: same stage background as live view for visual continuity. */
   const teamViewerArena =
     pathname.startsWith("/t/") && pathname.includes("/team/");

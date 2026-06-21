@@ -25,6 +25,10 @@ export const paths = {
     `tournaments/${tournamentId}/qualifying/matches`,
   qualifyingMatch: (tournamentId: string, matchId: string) =>
     `tournaments/${tournamentId}/qualifying/matches/${matchId}`,
+  practiceMatches: (tournamentId: string) =>
+    `tournaments/${tournamentId}/practice/matches`,
+  practiceMatch: (tournamentId: string, matchId: string) =>
+    `tournaments/${tournamentId}/practice/matches/${matchId}`,
   finalsGradeMeta: (tournamentId: string, gradeId: string) =>
     `tournaments/${tournamentId}/finals/${gradeId}/meta`,
   finalsGradeRoot: (tournamentId: string, gradeId: string) =>

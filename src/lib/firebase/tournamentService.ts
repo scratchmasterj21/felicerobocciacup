@@ -14,6 +14,7 @@ import { paths } from "./schema";
 import type {
   FinalMatchData,
   MatchSchedule,
+  PracticeMatchData,
   QualifyingMatchData,
   RegulationScores,
   ResurrectionMeta,
@@ -24,6 +25,10 @@ import {
   qualifyingOutcomeFromTotals,
   getQualifyingFixturePairings,
 } from "@/lib/tournament/roundRobin";
+import {
+  nextPracticeOrder,
+  selectPracticePairings,
+} from "@/lib/tournament/practice";
 import type { LeagueId } from "@/lib/tournament/leagueSplit";
 import {
   divisionLeagueKey,
@@ -104,7 +109,7 @@ async function assertJapanCupChallengeScoringAllowed(
 export type QualifyingMode = "twoPools" | "unified";
 
 /** Set once at tournament creation; not mutable via partial meta updates. */
-export type TournamentKind = "intraSchool" | "interSchool";
+export type TournamentKind = "intraSchool" | "interSchool" | "practice";
 
 export interface TournamentMeta {
   name: string;
@@ -620,6 +625,136 @@ export async function completeQualifyingMatch(
   const outcome = qualifyingOutcomeFromTotals(totalA, totalB);
   const r = ref(getDb(), paths.qualifyingMatch(tournamentId, matchId));
   await update(r, {
+    status: "COMPLETED",
+    regulation,
+    outcome,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Practice matches (per-class internal games; preliminary-style scoring only)
+// ---------------------------------------------------------------------------
+
+export function subscribePracticeMatches(
+  tournamentId: string,
+  cb: (matches: Record<string, PracticeMatchData> | null) => void
+): Unsubscribe {
+  const r = ref(getDb(), paths.practiceMatches(tournamentId));
+  return onValue(r, (snap) => {
+    const raw = snap.val() as Record<string, PracticeMatchData> | null;
+    if (!raw) {
+      cb(null);
+      return;
+    }
+    const hydrated: Record<string, PracticeMatchData> = {};
+    for (const [id, value] of Object.entries(raw)) {
+      hydrated[id] = { ...(value as PracticeMatchData), id };
+    }
+    cb(hydrated);
+  });
+}
+
+async function loadPracticeMatchesRecord(
+  tournamentId: string
+): Promise<Record<string, PracticeMatchData>> {
+  const snap = await get(ref(getDb(), paths.practiceMatches(tournamentId)));
+  return (snap.val() as Record<string, PracticeMatchData> | null) ?? {};
+}
+
+/**
+ * Append up to `count` practice matches for one class (grade + division).
+ * Builds the full round-robin pairing order, then keeps the first `count`
+ * pairings so a partial count still spreads play evenly across teams.
+ * Does not clear existing matches; new rows continue the `order` counter.
+ */
+export async function generatePracticeMatches(
+  tournamentId: string,
+  gradeId: string,
+  divisionId: "A" | "B",
+  count: number,
+  teamIds: string[]
+): Promise<void> {
+  if (count <= 0) return;
+  if (teamIds.length < 2) {
+    throw new Error("Need at least two teams in the class to generate matches.");
+  }
+  const pairings = selectPracticePairings(teamIds, count);
+  if (pairings.length === 0) return;
+  const existing = await loadPracticeMatchesRecord(tournamentId);
+  let order = nextPracticeOrder(existing);
+  const updates: Record<string, unknown> = {};
+  const now = Date.now();
+  for (const p of pairings) {
+    const id = push(ref(getDb(), paths.practiceMatches(tournamentId)))
+      .key as string;
+    const m: PracticeMatchData = {
+      id,
+      gradeId,
+      divisionId,
+      order,
+      teamAId: p.teamA,
+      teamBId: p.teamB,
+      status: "SCHEDULED",
+      createdAt: now,
+    };
+    updates[paths.practiceMatch(tournamentId, id)] = stripDeep(m);
+    order += 1;
+  }
+  await update(ref(getDb()), updates);
+}
+
+/** Add a single practice match by picking two teams. */
+export async function addPracticeMatch(
+  tournamentId: string,
+  input: {
+    gradeId: string;
+    divisionId: "A" | "B";
+    teamAId: string;
+    teamBId: string;
+  }
+): Promise<void> {
+  if (input.teamAId === input.teamBId) {
+    throw new Error("A practice match needs two different teams.");
+  }
+  const existing = await loadPracticeMatchesRecord(tournamentId);
+  const order = nextPracticeOrder(existing);
+  const id = push(ref(getDb(), paths.practiceMatches(tournamentId)))
+    .key as string;
+  const m: PracticeMatchData = {
+    id,
+    gradeId: input.gradeId,
+    divisionId: input.divisionId,
+    order,
+    teamAId: input.teamAId,
+    teamBId: input.teamBId,
+    status: "SCHEDULED",
+    createdAt: Date.now(),
+  };
+  await set(ref(getDb(), paths.practiceMatch(tournamentId, id)), stripDeep(m));
+}
+
+export async function deletePracticeMatch(
+  tournamentId: string,
+  matchId: string
+): Promise<void> {
+  await remove(ref(getDb(), paths.practiceMatch(tournamentId, matchId)));
+}
+
+export async function clearPracticeMatches(
+  tournamentId: string
+): Promise<void> {
+  await remove(ref(getDb(), paths.practiceMatches(tournamentId)));
+}
+
+/** Score a practice match (preliminary style: draws allowed, no extra time). */
+export async function completePracticeMatch(
+  tournamentId: string,
+  matchId: string,
+  regulation: RegulationScores
+): Promise<void> {
+  const { totalA, totalB } = regulationTotals(regulation);
+  const outcome = qualifyingOutcomeFromTotals(totalA, totalB);
+  await update(ref(getDb(), paths.practiceMatch(tournamentId, matchId)), {
     status: "COMPLETED",
     regulation,
     outcome,

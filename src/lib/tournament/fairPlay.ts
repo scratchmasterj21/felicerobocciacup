@@ -31,9 +31,15 @@ export type FairPlayStudentFields = {
 };
 
 export function isFairPlayEnabled(
-  meta: { tournamentKind?: "intraSchool" | "interSchool" } | null | undefined
+  meta:
+    | { tournamentKind?: "intraSchool" | "interSchool" | "practice" }
+    | null
+    | undefined
 ): boolean {
-  return meta?.tournamentKind !== "interSchool";
+  return (
+    meta?.tournamentKind !== "interSchool" &&
+    meta?.tournamentKind !== "practice"
+  );
 }
 
 export function fairPlayPointsOrDefault(value: number | undefined | null): number {

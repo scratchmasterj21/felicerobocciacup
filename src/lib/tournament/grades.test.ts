@@ -5,6 +5,7 @@ import {
   gradeLabel,
   isFeliceCupGradeId,
   isInterschoolGradeId,
+  isPracticeTournament,
   normalizeWorkingGrade,
   workingGradesForTournament,
 } from "./grades";
@@ -42,5 +43,14 @@ describe("grades", () => {
     expect(normalizeWorkingGrade({ tournamentKind: "interSchool" }, "G6")).toBe("IS");
     expect(normalizeWorkingGrade({ tournamentKind: "intraSchool" }, "IS")).toBe("G1");
     expect(normalizeWorkingGrade({ tournamentKind: "intraSchool" }, "G3")).toBe("G3");
+  });
+
+  it("identifies practice tournaments and uses Felice Cup grades", () => {
+    expect(isPracticeTournament({ tournamentKind: "practice" })).toBe(true);
+    expect(isPracticeTournament({ tournamentKind: "intraSchool" })).toBe(false);
+    expect(workingGradesForTournament({ tournamentKind: "practice" })).toEqual(
+      FELICE_CUP_GRADE_IDS
+    );
+    expect(defaultWorkingGrade({ tournamentKind: "practice" })).toBe("G1");
   });
 });
