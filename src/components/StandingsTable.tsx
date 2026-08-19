@@ -17,7 +17,7 @@ export function StandingsTable({
   projector?: boolean;
   /** Dark “arena” table skin for live projection (`?display=1`). */
   projectionMode?: boolean;
-  /** Show match pts, fair play, and total columns (within-school). */
+  /** Show the Fair Play percentage tie-break column (within-school). */
   showFairPlay?: boolean;
 }) {
   const large = Boolean(projectionMode || projector);
@@ -63,7 +63,6 @@ export function StandingsTable({
   const statCell = `${cell} text-right tabular-nums whitespace-nowrap`;
   const rankHeader = compactArena ? "#" : "Rank";
   const matchHeader = compactArena ? "MP" : showFairPlay ? "Match" : "Pts";
-  const totalHeader = compactArena ? "Tot" : "Total";
 
   return (
     <div className={wrap}>
@@ -73,8 +72,7 @@ export function StandingsTable({
             <col style={{ width: "6%" }} />
             <col style={{ width: "31%" }} />
             <col style={{ width: "7%" }} />
-            <col style={{ width: "9%" }} />
-            <col style={{ width: "8%" }} />
+            <col style={{ width: "10%" }} />
             <col style={{ width: "6.5%" }} />
             <col style={{ width: "6.5%" }} />
             <col style={{ width: "6.5%" }} />
@@ -91,17 +89,12 @@ export function StandingsTable({
               {matchHeader}
             </th>
             {showFairPlay ? (
-              <>
-                <th
-                  className={statCell}
-                  title="Sum of student Fair Play points"
-                >
-                  FP
-                </th>
-                <th className={statCell} title={compactArena ? "Total points" : undefined}>
-                  {totalHeader}
-                </th>
-              </>
+              <th
+                className={statCell}
+                title="Team Fair Play percentage (standings tie-breaker)"
+              >
+                FP%
+              </th>
             ) : null}
             <th className={statCell}>W</th>
             <th className={statCell}>D</th>
@@ -145,21 +138,13 @@ export function StandingsTable({
                   {s.leaguePoints}
                 </td>
                 {showFairPlay ? (
-                  <>
-                    <td className={statCell}>
-                      <FairPlayBandBadge
-                        points={s.fairPlayPoints ?? 15}
-                        compact={compactArena}
-                      />
-                    </td>
-                    <td
-                      className={`${statCell} font-bold ${
-                        arena ? "text-cup-signal" : "text-cup-ink"
-                      }`}
-                    >
-                      {s.totalScore ?? s.leaguePoints}
-                    </td>
-                  </>
+                  <td className={statCell}>
+                    <FairPlayBandBadge
+                      points={s.fairPlayPercentage ?? 100}
+                      percentage
+                      compact={compactArena}
+                    />
+                  </td>
                 ) : null}
                 <td
                   className={`${statCell} ${

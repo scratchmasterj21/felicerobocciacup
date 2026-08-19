@@ -11,10 +11,10 @@ import { FairPlayIncidentForm } from "@/components/FairPlayIncidentForm";
 import { FairPlayBandBadge } from "@/components/FairPlayBandBadge";
 import {
   fairPlayCategoryLabel,
+  fairPlayPercentageForTeam,
   isFairPlayLockedForGrade,
   japanCupEligibleForStudent,
   studentsOnTeam,
-  sumFairPlayForTeam,
 } from "@/lib/tournament/fairPlay";
 import { divisionLabel } from "@/lib/tournament/divisionLabels";
 import { formatScheduleTokyo } from "@/lib/schedule/tokyo";
@@ -57,8 +57,8 @@ export function FairPlayAdminSection({
   const [status, setStatus] = useState<string | null>(null);
   const [japanCupCopied, setJapanCupCopied] = useState(false);
 
-  const teamMap = teams ?? {};
-  const studentMap = students ?? {};
+  const teamMap = useMemo(() => teams ?? {}, [teams]);
+  const studentMap = useMemo(() => students ?? {}, [students]);
   const gradeLocked = isFairPlayLockedForGrade(finalsGradeMeta);
 
   const schoolShortById = useMemo(
@@ -119,8 +119,8 @@ export function FairPlayAdminSection({
     return studentsOnTeam(studentMap, historyTeamId);
   }, [studentMap, historyTeamId]);
 
-  const teamFairPlaySum = historyTeamId
-    ? sumFairPlayForTeam(studentMap, historyTeamId)
+  const teamFairPlayPercentage = historyTeamId
+    ? fairPlayPercentageForTeam(studentMap, historyTeamId)
     : 0;
 
   async function onInitializeAll() {
@@ -130,7 +130,7 @@ export function FairPlayAdminSection({
       const n = await initializeFairPlayForAllTeams(tournamentId);
       setStatus(
         n > 0
-          ? `Split 15 Fair Play points across rosters for ${n} team(s).`
+          ? `Set equal 15-point personal balances for ${n} team(s). Existing deductions were preserved.`
           : "All teams with rosters are already initialized."
       );
     } catch (err) {
@@ -229,9 +229,9 @@ export function FairPlayAdminSection({
         <div>
           <h2 className="font-display text-lg font-semibold">Fair Play</h2>
           <p className="text-xs text-cup-muted mt-1 max-w-2xl">
-            Within-school · preliminary only. Each team&apos;s 15 points are split across
-            students. Team standing uses the <strong>sum</strong> of student balances. Japan
-            Cup: students need &gt; 0 points at lock (when finals bracket is generated).
+            Within-school · preliminary only. Every student starts with 15 personal points.
+            Team Fair Play is a roster-size-neutral percentage used only after match points
+            as a standings tie-breaker. Japan Cup: students need &gt; 0 points at lock.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -284,7 +284,7 @@ export function FairPlayAdminSection({
             onClick={() => void onInitializeTeam()}
             className="px-3 py-2 rounded-lg border border-cup-line text-sm font-medium bg-white disabled:opacity-50"
           >
-            Split 15 pts across roster
+            Set 15 pts per student
           </button>
         </div>
       </div>
@@ -395,9 +395,9 @@ export function FairPlayAdminSection({
           {historyTeamId ? (
             <div className="text-sm space-y-2 border border-cup-line rounded-lg px-3 py-2 bg-white">
               <p>
-                Team total:{" "}
-                <FairPlayBandBadge points={teamFairPlaySum} />
-                <span className="text-cup-muted text-xs ml-1">(sum of students)</span>
+                Team Fair Play:{" "}
+                <FairPlayBandBadge points={teamFairPlayPercentage} percentage />
+                <span className="text-cup-muted text-xs ml-1">(roster percentage)</span>
               </p>
               {historyRoster.length > 0 ? (
                 <ul className="text-xs space-y-1 border-t border-cup-line pt-2">

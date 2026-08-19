@@ -6,6 +6,7 @@ import { TeamViewerPage } from "@/pages/TeamViewerPage";
 import { AdminDashboard } from "@/pages/AdminDashboard";
 import { FairPlayTeacherPage } from "@/pages/FairPlayTeacherPage";
 import { AdminLoginPage } from "@/pages/AdminLoginPage";
+import { ScorekeeperPage } from "@/pages/ScorekeeperPage";
 import { RequireAuth } from "@/components/RequireAuth";
 import { ADMIN_APP_ROUTES } from "@/lib/auth/admin";
 
@@ -27,6 +28,7 @@ export function App() {
             </RequireAuth>
           }
         />
+        <Route path={`${ADMIN_APP_ROUTES.root}/scorekeeper`} element={<ScorekeeperPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

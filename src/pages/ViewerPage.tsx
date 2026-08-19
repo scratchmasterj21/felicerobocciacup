@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { onValue, ref } from "firebase/database";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useTournamentId } from "@/hooks/useTournamentId";
 import {
@@ -48,15 +49,28 @@ import {
 import { subscribeStudents, subscribeFinalsGradeMeta } from "@/lib/firebase/fairPlayService";
 import type { StudentRecord } from "@/lib/firebase/tournamentService";
 import type { FinalsGradeMeta } from "@/lib/tournament/japanCupChallenge";
+import { getDb } from "@/lib/firebase/config";
+import { regulationTotals } from "@/lib/tournament/roundRobin";
 
 const LIVE_FALLBACK_LOGO_SRC = "https://i.imgur.com/RpJzD9D.png";
+type LiveViewMode = "overview" | "standings" | "schedule" | "redemption" | "finals";
+
+type LiveTimelineMatch = {
+  id: string;
+  stage: string;
+  teamAId?: string;
+  teamBId?: string;
+  status: string;
+  schedule?: { startAt: number; durationRegulationMinutes?: number; court?: string };
+  score?: string;
+};
 
 export function ViewerPage() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isInterschoolRoute = pathname === "/interschool";
   const [tournamentId, setTournamentId] = useTournamentId();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [grade, setGrade] = useState<string>("G1");
   const [meta, setMeta] = useState<{
     name: string;
@@ -96,11 +110,37 @@ export function ViewerPage() {
   const [resMatchesB, setResMatchesB] = useState<Record<string, FinalMatchData> | null>(null);
   const [resMatchesU, setResMatchesU] = useState<Record<string, FinalMatchData> | null>(null);
   const [students, setStudents] = useState<Record<string, StudentRecord> | null>(null);
+  const initialMode = searchParams.get("view");
+  const [viewMode, setViewModeState] = useState<LiveViewMode>(
+    initialMode === "standings" || initialMode === "schedule" || initialMode === "redemption" || initialMode === "finals"
+      ? initialMode
+      : "overview"
+  );
+  const [rotating, setRotating] = useState(searchParams.get("rotate") === "1");
+  const [now, setNow] = useState(Date.now());
+  const [connected, setConnected] = useState<boolean | null>(null);
+  const [lastUpdated, setLastUpdated] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => onValue(ref(getDb(), ".info/connected"), (snap) => setConnected(snap.val() === true)), []);
+  useEffect(() => setLastUpdated(Date.now()), [qMatches, fMatches, resMatchesA, resMatchesB, resMatchesU]);
 
   useEffect(() => {
     const tid = searchParams.get("tournamentId");
     if (tid) setTournamentId(tid);
   }, [searchParams, setTournamentId]);
+
+  useEffect(() => {
+    const requested = searchParams.get("view");
+    setViewModeState(
+      requested === "standings" || requested === "schedule" || requested === "redemption" || requested === "finals"
+        ? requested
+        : "overview"
+    );
+  }, [searchParams]);
 
   useEffect(() => {
     if (isInterschoolRoute) {
@@ -356,6 +396,77 @@ export function ViewerPage() {
     [resMatchesB]
   );
 
+  const hasRedemption = resListA.length + resListB.length + resListU.length > 0;
+  const hasFinals = finalMatchList.length > 0 || Boolean(japanCupChallengeDisplay);
+  const timeline = useMemo<LiveTimelineMatch[]>(() => {
+    const qualifyingRows = [...qualA, ...qualB].map((match) => {
+      const totals = match.regulation ? regulationTotals(match.regulation) : null;
+      return {
+        id: `qualifying:${match.id}`,
+        stage: `Preliminary · ${divisionLabel(meta, match.divisionId)}`,
+        teamAId: match.teamAId,
+        teamBId: match.teamBId,
+        status: match.status,
+        schedule: match.schedule,
+        score: totals ? `${totals.totalA}–${totals.totalB}` : undefined,
+      };
+    });
+    const knockoutRows = (matches: FinalMatchData[], stage: string) =>
+      matches.map((match) => {
+        const totals = match.regulation ? regulationTotals(match.regulation) : null;
+        const extra = match.extra8min?.round;
+        return {
+          id: `${stage}:${match.id}`,
+          stage,
+          teamAId: match.teamAId,
+          teamBId: match.teamBId,
+          status: match.status,
+          schedule: match.schedule,
+          score: totals
+            ? `${totals.totalA}–${totals.totalB}${extra ? ` · ET ${extra.scoreA}–${extra.scoreB}` : ""}`
+            : undefined,
+        };
+      });
+    return [
+      ...qualifyingRows,
+      ...knockoutRows([...resListA, ...resListB, ...resListU], "Redemption"),
+      ...knockoutRows(finalMatchList, "Finals"),
+    ].filter((match) => match.schedule?.startAt != null);
+  }, [qualA, qualB, resListA, resListB, resListU, finalMatchList, meta]);
+
+  const liveMatches = useMemo(
+    () => timeline.filter((match) => {
+      if (match.status === "COMPLETED" || !match.schedule) return false;
+      const duration = match.schedule.durationRegulationMinutes ?? (match.stage === "Redemption" ? 3 : 16);
+      return match.schedule.startAt <= now && now < match.schedule.startAt + duration * 60_000;
+    }),
+    [timeline, now]
+  );
+  const upcomingMatches = useMemo(
+    () => timeline.filter((match) => match.status !== "COMPLETED" && Boolean(match.schedule) && match.schedule!.startAt > now).sort((a, b) => a.schedule!.startAt - b.schedule!.startAt).slice(0, 4),
+    [timeline, now]
+  );
+
+  const availableModes = useMemo<LiveViewMode[]>(
+    () => ["overview", "standings", "schedule", ...(hasRedemption ? ["redemption" as const] : []), ...(hasFinals ? ["finals" as const] : [])],
+    [hasRedemption, hasFinals]
+  );
+  useEffect(() => {
+    if (!rotating || availableModes.length < 2) return;
+    const timer = window.setInterval(() => {
+      setViewModeState((current) => {
+        const index = availableModes.indexOf(current);
+        return availableModes[(index + 1) % availableModes.length];
+      });
+    }, 12_000);
+    return () => window.clearInterval(timer);
+  }, [rotating, availableModes]);
+
+  const showStandings = viewMode === "overview" || viewMode === "standings";
+  const showSchedule = viewMode === "schedule";
+  const showRedemption = viewMode === "redemption" && hasRedemption;
+  const showFinals = viewMode === "finals" && hasFinals;
+
   const h2Section =
     "font-displayWide text-2xl md:text-3xl font-semibold mb-3 text-slate-50 border-l-4 border-cup-signal pl-3 tracking-wide";
   const h3League =
@@ -399,22 +510,55 @@ export function ViewerPage() {
         ) : null}
       </header>
 
-      {isUnified ? (
+      <LiveDisplayToolbar
+        mode={viewMode}
+        modes={availableModes}
+        rotating={rotating}
+        connected={connected}
+        lastUpdated={lastUpdated}
+        onMode={(mode) => {
+          setRotating(false);
+          setViewModeState(mode);
+          const next = new URLSearchParams(searchParams);
+          next.delete("rotate");
+          if (mode === "overview") next.delete("view");
+          else next.set("view", mode);
+          setSearchParams(next, { replace: true });
+        }}
+        onToggleRotation={() => {
+          const nextValue = !rotating;
+          setRotating(nextValue);
+          const next = new URLSearchParams(searchParams);
+          if (nextValue) next.set("rotate", "1");
+          else next.delete("rotate");
+          setSearchParams(next, { replace: true });
+        }}
+      />
+
+      {viewMode === "overview" ? (
+        <LiveMatchSpotlight
+          live={liveMatches}
+          upcoming={upcomingMatches}
+          nameById={nameById}
+          now={now}
+        />
+      ) : null}
+
+      {showStandings && isUnified ? (
         <p className={bodyMutedNarrow}>
           {isInterSchool
-            ? "School vs school preliminary: one combined league in Pool A. Assign every team a school; with two schools, fixtures are cross-school only."
-            : "Unified preliminary: one league in Pool A; Pool B is not used for this tournament."}
+            ? "School vs school preliminary · one combined league."
+            : "Unified preliminary · one combined league."}
         </p>
       ) : null}
 
-      {fairPlayEnabled ? (
+      {showStandings && fairPlayEnabled ? (
         <p className={bodyMutedNarrow}>
-          Preliminary standings only: <strong>Total</strong> = match points + team Fair Play (sum
-          of each student&apos;s share of 15). Finals matches are not scored with Fair Play.
+          Match points decide first. <strong>Fair Play %</strong> is the next tie-breaker.
         </p>
       ) : null}
 
-      <section className={isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"}>
+      {showStandings ? <section className={isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"}>
         <div className="min-w-0">
           <h2 className={h2Section}>
             Preliminary — {grade} · {divisionLabel(meta, "A")}
@@ -485,9 +629,9 @@ export function ViewerPage() {
             )}
           </div>
         ) : null}
-      </section>
+      </section> : null}
 
-      <section className={isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"}>
+      {showSchedule ? <section className={isUnified ? "grid gap-8" : "grid md:grid-cols-2 gap-8"}>
         {!isUnified && effLeagueCountA === 1 && effLeagueCountB === 1 ? (
           <div className="md:col-span-2">
             <QualifyingScheduleByRound
@@ -548,9 +692,9 @@ export function ViewerPage() {
             />
           )
         ) : null}
-      </section>
+      </section> : null}
 
-      <section className="space-y-6">
+      {showRedemption ? <section className="space-y-6">
         <h2 className={h2Major}>Redemption bracket — {grade}</h2>
         <p className={bodyMuted}>
           Knockout for teams below the direct-qualifier cut (3 min regulation, extra period if
@@ -624,9 +768,9 @@ export function ViewerPage() {
             </div>
           </div>
         )}
-      </section>
+      </section> : null}
 
-      <section>
+      {showFinals ? <section>
         <h2 className={`${h2Major} mb-3`}>
           Finals bracket — {isInterSchool ? "Interschool" : grade}
         </h2>
@@ -668,7 +812,142 @@ export function ViewerPage() {
             </div>
           </div>
         )}
-      </section>
+      </section> : null}
     </div>
+  );
+}
+
+const LIVE_MODE_LABELS: Record<LiveViewMode, string> = {
+  overview: "Overview",
+  standings: "Standings",
+  schedule: "Schedule",
+  redemption: "Redemption",
+  finals: "Finals",
+};
+
+function LiveDisplayToolbar({
+  mode,
+  modes,
+  rotating,
+  connected,
+  lastUpdated,
+  onMode,
+  onToggleRotation,
+}: {
+  mode: LiveViewMode;
+  modes: LiveViewMode[];
+  rotating: boolean;
+  connected: boolean | null;
+  lastUpdated: number;
+  onMode: (mode: LiveViewMode) => void;
+  onToggleRotation: () => void;
+}) {
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await document.documentElement.requestFullscreen();
+    } catch {
+      // Fullscreen can be unavailable when browser or device policy blocks it.
+    }
+  }
+
+  return (
+    <div className="sticky top-2 z-40 rounded-xl border border-cup-stageBorder bg-cup-stageElevated/95 p-2 shadow-xl shadow-black/20 backdrop-blur">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-1.5" aria-label="Live display section">
+          {modes.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => onMode(item)}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                mode === item
+                  ? "bg-cup-signal text-cup-stage"
+                  : "bg-white/5 text-slate-300 hover:bg-white/10"
+              }`}
+            >
+              {LIVE_MODE_LABELS[item]}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className={connected === false ? "text-red-300" : "text-green-300"}>
+            {connected === null ? "Connecting…" : connected ? "● Live data" : "● Offline · showing saved data"}
+          </span>
+          <span className="hidden text-slate-500 md:inline">
+            Updated {new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(lastUpdated))}
+          </span>
+          <button type="button" onClick={onToggleRotation} className={`rounded-lg border px-3 py-2 font-semibold ${rotating ? "border-cup-signal bg-cup-signal/10 text-cup-signal" : "border-cup-stageBorder text-slate-300"}`}>
+            {rotating ? "Pause rotation" : "Auto rotate"}
+          </button>
+          <button type="button" onClick={() => void toggleFullscreen()} className="rounded-lg border border-cup-stageBorder px-3 py-2 font-semibold text-slate-300">
+            Full screen
+          </button>
+        </div>
+      </div>
+      {rotating ? <div className="live-rotation-progress mt-2 h-0.5 rounded-full bg-cup-signal" /> : null}
+    </div>
+  );
+}
+
+function LiveMatchSpotlight({
+  live,
+  upcoming,
+  nameById,
+  now,
+}: {
+  live: LiveTimelineMatch[];
+  upcoming: LiveTimelineMatch[];
+  nameById: Map<string, string>;
+  now: number;
+}) {
+  const featured = live[0] ?? upcoming[0];
+  const queue = live.length > 0 ? upcoming : upcoming.slice(1);
+  const teamName = (id?: string) => (id ? nameById.get(id) ?? id : "TBD");
+  const time = (match: LiveTimelineMatch) =>
+    match.schedule
+      ? new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" }).format(new Date(match.schedule.startAt))
+      : "TBD";
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-cup-stageBorder bg-cup-stageElevated shadow-2xl shadow-black/20">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cup-stageBorder bg-black/20 px-5 py-3">
+        <div className="flex items-center gap-3">
+          <span className={`rounded-full px-3 py-1 text-xs font-black tracking-widest ${live.length > 0 ? "animate-pulse bg-red-500 text-white" : "bg-cup-signal text-cup-stage"}`}>
+            {live.length > 0 ? "LIVE" : "NEXT"}
+          </span>
+          <span className="text-sm font-semibold text-slate-300">{featured?.stage ?? "Tournament overview"}</span>
+        </div>
+        <time className="font-displayWide text-xl font-semibold tabular-nums text-cup-signal">
+          {new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" }).format(new Date(now))}
+          <span className="ml-2 text-xs font-normal text-slate-400">JST</span>
+        </time>
+      </div>
+      {featured ? (
+        <div className="grid items-center gap-4 px-5 py-7 md:grid-cols-[1fr_auto_1fr] md:px-10 md:py-10">
+          <div className="text-center md:text-right"><p className="font-displayWide text-2xl font-bold text-slate-50 md:text-4xl">{teamName(featured.teamAId)}</p></div>
+          <div className="text-center">
+            {featured.score ? <p className="font-display text-4xl font-black tabular-nums text-cup-signal md:text-6xl">{featured.score}</p> : <p className="font-display text-2xl font-semibold text-slate-400">VS</p>}
+            <p className="mt-2 text-sm font-semibold text-slate-400">{time(featured)}{featured.schedule?.court ? ` · ${featured.schedule.court}` : ""}</p>
+          </div>
+          <div className="text-center md:text-left"><p className="font-displayWide text-2xl font-bold text-slate-50 md:text-4xl">{teamName(featured.teamBId)}</p></div>
+        </div>
+      ) : (
+        <p className="px-5 py-10 text-center text-lg text-slate-400">No scheduled matches yet.</p>
+      )}
+      {queue.length > 0 ? (
+        <div className="border-t border-cup-stageBorder px-5 py-4">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Coming up</p>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {queue.map((match) => (
+              <div key={match.id} className="rounded-xl border border-cup-stageBorder bg-black/15 px-4 py-3">
+                <div className="flex items-center justify-between gap-2 text-xs"><span className="font-semibold text-cup-signalMuted">{time(match)}</span><span className="truncate text-slate-500">{match.schedule?.court ?? match.stage}</span></div>
+                <p className="mt-1 truncate font-semibold text-slate-100">{teamName(match.teamAId)} <span className="font-normal text-slate-500">vs</span> {teamName(match.teamBId)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }

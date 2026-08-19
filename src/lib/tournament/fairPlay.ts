@@ -108,19 +108,15 @@ export function isFairPlayLockedForGrade(
   return typeof finalsGradeMeta?.generatedAt === "number";
 }
 
-/**
- * Split 15 points across N students: floor(15/N) each, +1 to first (15%N) by sorted studentId.
- */
+/** Give every student the same personal Fair Play balance. */
 export function splitFairPlayPool(teamStudentIds: string[]): Map<string, FairPlayStudentSlice> {
   const sorted = [...teamStudentIds].sort((a, b) => a.localeCompare(b));
-  const n = sorted.length;
   const result = new Map<string, FairPlayStudentSlice>();
-  if (n === 0) return result;
-  const base = Math.floor(FAIR_PLAY_INITIAL / n);
-  const remainder = FAIR_PLAY_INITIAL % n;
-  for (let i = 0; i < n; i++) {
-    const share = base + (i < remainder ? 1 : 0);
-    result.set(sorted[i], { points: share, initialShare: share });
+  for (const studentId of sorted) {
+    result.set(studentId, {
+      points: FAIR_PLAY_INITIAL,
+      initialShare: FAIR_PLAY_INITIAL,
+    });
   }
   return result;
 }
@@ -162,6 +158,25 @@ export function sumFairPlayForTeam(
   return 0;
 }
 
+/**
+ * Percentage of the roster's remaining personal Fair Play points.
+ * Using a percentage keeps teams with different roster sizes comparable.
+ */
+export function fairPlayPercentageForTeam(
+  students: Record<string, FairPlayStudentFields & { teamId?: string }> | null | undefined,
+  teamId: string
+): number {
+  const roster = studentsOnTeam(students, teamId);
+  if (roster.length === 0 || !teamHasInitializedFairPlay(students, teamId)) return 100;
+  const current = roster.reduce((sum, s) => sum + (s.fairPlayPoints ?? 0), 0);
+  const maximum = roster.reduce(
+    (sum, s) => sum + Math.max(0, s.fairPlayInitialShare ?? 0),
+    0
+  );
+  if (maximum <= 0) return 100;
+  return Math.round((current / maximum) * 1000) / 10;
+}
+
 export function buildFairPlayByTeamIdFromStudents(
   students: Record<string, FairPlayStudentFields & { teamId?: string }> | null | undefined,
   teamIds: string[],
@@ -170,9 +185,12 @@ export function buildFairPlayByTeamIdFromStudents(
   const m = new Map<string, number>();
   for (const id of teamIds) {
     if (teamHasInitializedFairPlay(students, id)) {
-      m.set(id, sumFairPlayForTeam(students, id));
+      m.set(id, fairPlayPercentageForTeam(students, id));
     } else {
-      m.set(id, fairPlayPointsOrDefault(teams?.[id]?.fairPlayPoints));
+      // Legacy team-only values represented a 15-point pool. Convert them to a rate.
+      const legacy = fairPlayPointsOrDefault(teams?.[id]?.fairPlayPoints);
+      const rate = Math.round((legacy / FAIR_PLAY_INITIAL) * 1000) / 10;
+      m.set(id, Math.min(100, Math.max(0, rate)));
     }
   }
   return m;

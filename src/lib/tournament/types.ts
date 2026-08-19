@@ -78,10 +78,8 @@ export interface StandingRow {
   goalsAgainst: number;
   goalDiff: number;
   leaguePoints: number;
-  /** Present when Fair Play is enabled for the tournament. */
-  fairPlayPoints?: number;
-  /** leaguePoints + fairPlayPoints when Fair Play is enabled. */
-  totalScore?: number;
+  /** Remaining team Fair Play rate (0–100), used after league points. */
+  fairPlayPercentage?: number;
 }
 
 export type FairPlayIncidentKind = "incident" | "adjustment";

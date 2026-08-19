@@ -17,10 +17,15 @@ function mergeLeagueStandings(
   useFairPlay: boolean
 ): StandingRow[] {
   return [...l1, ...l2].sort((a, b) => {
-    if (useFairPlay && a.totalScore != null && b.totalScore != null) {
-      if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-    }
     if (b.leaguePoints !== a.leaguePoints) return b.leaguePoints - a.leaguePoints;
+    if (
+      useFairPlay &&
+      a.fairPlayPercentage != null &&
+      b.fairPlayPercentage != null &&
+      b.fairPlayPercentage !== a.fairPlayPercentage
+    ) {
+      return b.fairPlayPercentage - a.fairPlayPercentage;
+    }
     if (b.goalDiff !== a.goalDiff) return b.goalDiff - a.goalDiff;
     if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
     return a.teamId.localeCompare(b.teamId);

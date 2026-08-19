@@ -26,7 +26,7 @@ export function isCascadeLadderGroup(
 /**
  * Use compact vertical-column layout when ladder structure allows narrower canvas.
  */
-export function useCompactLadderLayout(
+export function shouldUseCompactLadderLayout(
   matches: FinalMatchData[],
   splitChampionMode: boolean
 ): boolean {

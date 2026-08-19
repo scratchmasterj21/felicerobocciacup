@@ -5,6 +5,7 @@
 
 export const paths = {
   tournamentsRoot: () => "tournaments",
+  tournamentRoot: (tournamentId: string) => `tournaments/${tournamentId}`,
   tournamentMeta: (tournamentId: string) =>
     `tournaments/${tournamentId}/meta`,
   teams: (tournamentId: string) => `tournaments/${tournamentId}/teams`,
@@ -64,4 +65,3 @@ export const paths = {
   adminUids: () => "config/adminUids",
   adminUid: (uid: string) => `config/adminUids/${uid}`,
 };
-

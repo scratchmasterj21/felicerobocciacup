@@ -169,6 +169,27 @@ export interface StudentRecord {
   japanCupEligible?: boolean;
 }
 
+/** Read a complete tournament snapshot for local backup/export. */
+export async function exportTournamentData(
+  tournamentId: string
+): Promise<Record<string, unknown>> {
+  const snap = await get(ref(getDb(), paths.tournamentRoot(tournamentId)));
+  if (!snap.exists()) throw new Error("Tournament data was not found.");
+  const value = snap.val();
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Tournament data is not a valid object.");
+  }
+  return value as Record<string, unknown>;
+}
+
+/** Replace one tournament root with a previously validated local snapshot. */
+export async function restoreTournamentData(
+  tournamentId: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  await set(ref(getDb(), paths.tournamentRoot(tournamentId)), stripDeep(data));
+}
+
 export function subscribeTournamentMeta(
   tournamentId: string,
   cb: (meta: TournamentMeta | null) => void
@@ -436,6 +457,61 @@ export async function updateTeamSchool(
 ): Promise<void> {
   await update(ref(getDb(), paths.team(tournamentId, teamId)), {
     schoolId: schoolId ?? null,
+  });
+}
+
+export async function updateTeam(
+  tournamentId: string,
+  teamId: string,
+  input: Pick<TeamRecord, "name" | "gradeId" | "divisionId"> & {
+    code?: string;
+    schoolId?: string;
+  }
+): Promise<void> {
+  const name = input.name.trim();
+  const code = input.code?.trim() ?? "";
+  if (!name) throw new Error("Team name is required.");
+  if (!input.gradeId.trim()) throw new Error("Grade is required.");
+  if (input.divisionId !== "A" && input.divisionId !== "B") {
+    throw new Error("Pool must be A or B.");
+  }
+
+  const tournamentSnap = await get(ref(getDb(), paths.tournamentRoot(tournamentId)));
+  const tournament = tournamentSnap.val() as Record<string, unknown> | null;
+  const teams = (tournament?.teams as Record<string, TeamRecord> | undefined) ?? {};
+  const current = teams[teamId];
+  if (!current) throw new Error("Team not found.");
+  if (
+    code &&
+    Object.entries(teams).some(
+      ([id, team]) => id !== teamId && team.code?.trim().toLowerCase() === code.toLowerCase()
+    )
+  ) {
+    throw new Error(`Team code “${code}” is already in use.`);
+  }
+
+  const structuralChange =
+    current.gradeId !== input.gradeId || current.divisionId !== input.divisionId;
+  if (structuralChange) {
+    const stages = [tournament?.qualifying, tournament?.finals, tournament?.resurrection];
+    const containsTeam = (value: unknown): boolean => {
+      if (!value || typeof value !== "object") return false;
+      if (Array.isArray(value)) return value.some(containsTeam);
+      const object = value as Record<string, unknown>;
+      if (object.teamAId === teamId || object.teamBId === teamId || object.winnerTeamId === teamId) return true;
+      return Object.values(object).some(containsTeam);
+    };
+    if (stages.some(containsTeam)) {
+      throw new Error("Grade or pool cannot be changed after this team appears in generated matches. Rename, code, and school can still be edited.");
+    }
+  }
+
+  await update(ref(getDb(), paths.team(tournamentId, teamId)), {
+    name,
+    code: code || null,
+    gradeId: input.gradeId,
+    divisionId: input.divisionId,
+    schoolId: input.schoolId?.trim() || null,
   });
 }
 
@@ -863,7 +939,8 @@ async function maybeSyncJapanCupChallengeAfterFinal(
   const updates: Record<string, unknown> = {
     [paths.finalsMatch(tournamentId, gradeId, built.id)]: stripDeep(
       (() => {
-        const { id: _id, ...rest } = built;
+        const { id, ...rest } = built;
+        void id;
         return rest;
       })()
     ),

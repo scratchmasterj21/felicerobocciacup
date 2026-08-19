@@ -171,7 +171,7 @@ function buildCascadeLadderBracketTree(
   return matches;
 }
 
-function useCascadeLadderForFinals(seedCount: number): boolean {
+function shouldUseCascadeLadderForFinals(seedCount: number): boolean {
   return seedCount >= 2 && seedCount <= CASCADE_LADDER_MAX_SEEDS;
 }
 
@@ -185,7 +185,7 @@ export function buildFinalBracketMatchTree(
   bracketGroup?: "A" | "B" | "U",
   format: FinalsBracketFormat = "ladder"
 ): FinalMatchData[] {
-  if (format === "ladder" && useCascadeLadderForFinals(seedsOrdered.length)) {
+  if (format === "ladder" && shouldUseCascadeLadderForFinals(seedsOrdered.length)) {
     return buildCascadeLadderBracketTree(gradeId, seedsOrdered, bracketGroup);
   }
   const fr = buildFirstRoundSingleElim(seedsOrdered);

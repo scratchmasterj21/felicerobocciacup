@@ -5,7 +5,6 @@ import {
   POINTS_WIN,
 } from "./types";
 import { regulationTotals } from "./roundRobin";
-import { fairPlayPointsOrDefault } from "./fairPlay";
 
 export interface RankStandingsOptions {
   fairPlayByTeamId?: Map<string, number>;
@@ -76,12 +75,13 @@ export function aggregateStandingsFromMatches(
 function attachFairPlay(
   row: Omit<StandingRow, "rank">,
   fairPlayByTeamId: Map<string, number>
-): Omit<StandingRow, "rank"> & { fairPlayPoints: number; totalScore: number } {
-  const fairPlayPoints = fairPlayPointsOrDefault(fairPlayByTeamId.get(row.teamId));
+): Omit<StandingRow, "rank"> & { fairPlayPercentage: number } {
+  const value = fairPlayByTeamId.get(row.teamId);
+  const fairPlayPercentage =
+    typeof value === "number" && Number.isFinite(value) ? value : 100;
   return {
     ...row,
-    fairPlayPoints,
-    totalScore: row.leaguePoints + fairPlayPoints,
+    fairPlayPercentage,
   };
 }
 
@@ -96,11 +96,16 @@ function primaryCompare(
 }
 
 function primaryCompareWithFairPlay(
-  a: Omit<StandingRow, "rank"> & { totalScore: number },
-  b: Omit<StandingRow, "rank"> & { totalScore: number }
+  a: Omit<StandingRow, "rank"> & { fairPlayPercentage: number },
+  b: Omit<StandingRow, "rank"> & { fairPlayPercentage: number }
 ): number {
-  if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
-  return primaryCompare(a, b);
+  if (b.leaguePoints !== a.leaguePoints) return b.leaguePoints - a.leaguePoints;
+  if (b.fairPlayPercentage !== a.fairPlayPercentage) {
+    return b.fairPlayPercentage - a.fairPlayPercentage;
+  }
+  if (b.goalDiff !== a.goalDiff) return b.goalDiff - a.goalDiff;
+  if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+  return 0;
 }
 
 function samePrimaryTie(
@@ -111,7 +116,7 @@ function samePrimaryTie(
   if (fairPlay) {
     const ta = attachFairPlay(a, fairPlay);
     const tb = attachFairPlay(b, fairPlay);
-    if (ta.totalScore !== tb.totalScore) return false;
+    if (ta.fairPlayPercentage !== tb.fairPlayPercentage) return false;
   }
   return (
     a.leaguePoints === b.leaguePoints &&
@@ -151,7 +156,7 @@ function miniLeagueCompare(
   };
 }
 
-/** Tie-break: leaguePts -> GD -> GF -> head-to-head mini-league -> teamId; with Fair Play: totalScore first. */
+/** Tie-break: leaguePts -> Fair Play rate (when enabled) -> GD -> GF -> head-to-head -> teamId. */
 export function rankStandings(
   teamIds: string[],
   matches: QualifyingMatchData[],
@@ -182,8 +187,7 @@ export function rankStandings(
         const fp = attachFairPlay(base, fairPlay);
         result.push({
           ...base,
-          fairPlayPoints: fp.fairPlayPoints,
-          totalScore: fp.totalScore,
+          fairPlayPercentage: fp.fairPlayPercentage,
           rank: rankCounter,
         });
       } else {

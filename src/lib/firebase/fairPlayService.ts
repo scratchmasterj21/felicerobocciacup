@@ -151,17 +151,26 @@ export async function initializeFairPlayForTeam(
   const split = splitFairPlayPool(roster.map((s) => s.id));
   const updates: Record<string, unknown> = {};
   for (const [studentId, slice] of split) {
-    updates[`${paths.student(tournamentId, studentId)}/fairPlayPoints`] = slice.points;
+    const existing = students?.[studentId];
+    const previousMax = existing?.fairPlayInitialShare;
+    const previousPoints = existing?.fairPlayPoints;
+    // Preserve deductions when upgrading a roster from the old shared-pool model.
+    const deductionsAlreadyApplied =
+      typeof previousMax === "number" && typeof previousPoints === "number"
+        ? Math.max(0, previousMax - previousPoints)
+        : 0;
+    const points = clampStudentFairPlayPoints(
+      slice.initialShare - deductionsAlreadyApplied,
+      slice.initialShare
+    );
+    updates[`${paths.student(tournamentId, studentId)}/fairPlayPoints`] = points;
     updates[`${paths.student(tournamentId, studentId)}/fairPlayInitialShare`] =
       slice.initialShare;
     updates[`${paths.student(tournamentId, studentId)}/japanCupEligible`] = null;
-  }
-  Object.assign(updates, teamFairPlaySumUpdates(tournamentId, teamId, students));
-  for (const [studentId, slice] of split) {
     if (students?.[studentId]) {
       students[studentId] = {
         ...students[studentId],
-        fairPlayPoints: slice.points,
+        fairPlayPoints: points,
         fairPlayInitialShare: slice.initialShare,
       };
     }
@@ -186,8 +195,10 @@ export async function initializeFairPlayForAllTeams(
   if (!teams) return 0;
   let teamCount = 0;
   for (const teamId of Object.keys(teams)) {
-    if (teamHasInitializedFairPlay(students, teamId)) continue;
     const roster = studentsOnTeam(students, teamId);
+    const usesEqualPersonalBalance =
+      roster.length > 0 && roster.every((s) => s.fairPlayInitialShare === 15);
+    if (teamHasInitializedFairPlay(students, teamId) && usesEqualPersonalBalance) continue;
     if (roster.length === 0) continue;
     await initializeFairPlayForTeam(tournamentId, teamId);
     teamCount += 1;

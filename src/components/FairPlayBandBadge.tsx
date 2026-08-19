@@ -14,15 +14,20 @@ export function FairPlayBandBadge({
   points,
   initialShare,
   compact,
+  percentage,
 }: {
   points: number;
   /** When set, band colors scale to the student's starting share. */
   initialShare?: number;
   /** Smaller layout for dense standings tables. */
   compact?: boolean;
+  /** Display a 0–100 team Fair Play rate. */
+  percentage?: boolean;
 }) {
   const band =
-    typeof initialShare === "number" && initialShare > 0
+    percentage
+      ? fairPlayBandForShare(points, 100)
+      : typeof initialShare === "number" && initialShare > 0
       ? fairPlayBandForShare(points, initialShare)
       : fairPlayBand(points);
   return (
@@ -43,7 +48,11 @@ export function FairPlayBandBadge({
         }`}
         aria-hidden
       />
-      {typeof initialShare === "number" ? `${points}/${initialShare}` : points}
+      {percentage
+        ? `${points}%`
+        : typeof initialShare === "number"
+          ? `${points}/${initialShare}`
+          : points}
     </span>
   );
 }

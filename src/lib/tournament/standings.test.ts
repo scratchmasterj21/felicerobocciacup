@@ -30,7 +30,7 @@ describe("rankStandings", () => {
     expect(r[0].leaguePoints).toBe(6);
   });
 
-  it("ranks by totalScore when fair play is enabled", () => {
+  it("uses Fair Play percentage after match points", () => {
     const teams = ["a", "b"];
     const matches: QualifyingMatchData[] = [
       qm({
@@ -45,15 +45,25 @@ describe("rankStandings", () => {
       }),
     ];
     const fairPlay = new Map([
-      ["a", 15],
-      ["b", 14],
+      ["a", 100],
+      ["b", 90],
     ]);
     const r = rankStandings(teams, matches, { fairPlayByTeamId: fairPlay });
     expect(r[0].teamId).toBe("a");
     expect(r[0].leaguePoints).toBe(1);
-    expect(r[0].fairPlayPoints).toBe(15);
-    expect(r[0].totalScore).toBe(16);
+    expect(r[0].fairPlayPercentage).toBe(100);
     expect(r[1].teamId).toBe("b");
-    expect(r[1].totalScore).toBe(15);
+  });
+
+  it("never lets Fair Play overcome a match-points lead", () => {
+    const teams = ["a", "b"];
+    const matches = [qm({ id: "1", teamAId: "a", teamBId: "b", outcome: "WIN_A" })];
+    const fairPlay = new Map([
+      ["a", 0],
+      ["b", 100],
+    ]);
+    const r = rankStandings(teams, matches, { fairPlayByTeamId: fairPlay });
+    expect(r[0].teamId).toBe("a");
+    expect(r[0].leaguePoints).toBe(3);
   });
 });

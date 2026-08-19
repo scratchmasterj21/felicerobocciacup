@@ -36,7 +36,8 @@ export function defaultWorkingGrade(meta: GradeMeta): string {
   return isInterSchoolTournament(meta) ? INTERSCHOOL_GRADE_ID : "G1";
 }
 
-export function gradeLabel(id: string, _meta?: GradeMeta): string {
+export function gradeLabel(id: string, meta?: GradeMeta): string {
+  void meta;
   if (id === INTERSCHOOL_GRADE_ID) return "Interschool";
   return id;
 }

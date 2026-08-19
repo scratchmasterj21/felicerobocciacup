@@ -4,7 +4,7 @@ import {
   buildResurrectionBracketMatchTree,
   buildSplitFinalBracketWithGradeChampionship,
 } from "./bracketMatches";
-import { isCascadeLadderGroup, useCompactLadderLayout } from "./bracketLayout";
+import { isCascadeLadderGroup, shouldUseCompactLadderLayout } from "./bracketLayout";
 
 describe("isCascadeLadderGroup", () => {
   it("detects cascade ladder for 5 seeds", () => {
@@ -22,7 +22,7 @@ describe("isCascadeLadderGroup", () => {
   });
 });
 
-describe("useCompactLadderLayout", () => {
+describe("shouldUseCompactLadderLayout", () => {
   it("is true for split finals with ladder pools", () => {
     const split = buildSplitFinalBracketWithGradeChampionship("G6", ["a", "b", "c", "d", "e"], [
       "f",
@@ -31,17 +31,17 @@ describe("useCompactLadderLayout", () => {
       "i",
       "j",
     ]);
-    expect(useCompactLadderLayout(split, true)).toBe(true);
+    expect(shouldUseCompactLadderLayout(split, true)).toBe(true);
   });
 
   it("is true for unified ladder", () => {
     const tree = buildFinalBracketMatchTree("G6", ["a", "b", "c", "d"], "U");
-    expect(useCompactLadderLayout(tree, false)).toBe(true);
+    expect(shouldUseCompactLadderLayout(tree, false)).toBe(true);
   });
 
   it("is false for classic single-elim tree with multiple round-0 matches", () => {
     const tree = buildResurrectionBracketMatchTree("G1", "A", ["a", "b", "c", "d"]);
-    expect(useCompactLadderLayout(tree, false)).toBe(false);
+    expect(shouldUseCompactLadderLayout(tree, false)).toBe(false);
   });
 
   it("is false for singleElim finals format even with few seeds", () => {
@@ -51,13 +51,13 @@ describe("useCompactLadderLayout", () => {
       ["f", "g", "h", "i", "j"],
       "singleElim"
     );
-    expect(useCompactLadderLayout(split, true)).toBe(false);
+    expect(shouldUseCompactLadderLayout(split, true)).toBe(false);
     const unified = buildFinalBracketMatchTree(
       "G6",
       ["a", "b", "c", "d"],
       "U",
       "singleElim"
     );
-    expect(useCompactLadderLayout(unified, false)).toBe(false);
+    expect(shouldUseCompactLadderLayout(unified, false)).toBe(false);
   });
 });

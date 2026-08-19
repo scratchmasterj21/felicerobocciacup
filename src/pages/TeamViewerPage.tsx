@@ -27,12 +27,12 @@ import {
 import type { StudentRecord } from "@/lib/firebase/tournamentService";
 import {
   fairPlayCategoryLabel,
+  fairPlayPercentageForTeam,
   isFairPlayEnabled,
   isFairPlayLockedForGrade,
   japanCupEligibleForStudent,
   rankStandingsFairPlayOptions,
   studentsOnTeam,
-  sumFairPlayForTeam,
 } from "@/lib/tournament/fairPlay";
 import type { FairPlayIncident } from "@/lib/tournament/types";
 import { FairPlayBandBadge } from "@/components/FairPlayBandBadge";
@@ -307,8 +307,8 @@ export function TeamViewerPage() {
     () => studentsOnTeam(students, teamId),
     [students, teamId]
   );
-  const teamFairPlaySum = useMemo(
-    () => sumFairPlayForTeam(students, teamId),
+  const teamFairPlayPercentage = useMemo(
+    () => fairPlayPercentageForTeam(students, teamId),
     [students, teamId]
   );
 
@@ -470,10 +470,10 @@ export function TeamViewerPage() {
             </p>
           ) : (
             <p className="text-xs text-slate-400 mb-4">
-              Preliminary only. Team Fair Play = sum of student shares (15 split across roster).
+              Match points decide first. Team Fair Play percentage is the next tie-breaker.
             </p>
           )}
-          <dl className="grid grid-cols-3 gap-4 text-center">
+          <dl className="grid grid-cols-2 gap-4 text-center">
             <div>
               <dt className="text-xs uppercase tracking-widest text-slate-400 mb-1">Match pts</dt>
               <dd className="text-2xl font-bold text-slate-50 tabular-nums">
@@ -483,13 +483,7 @@ export function TeamViewerPage() {
             <div>
               <dt className="text-xs uppercase tracking-widest text-slate-400 mb-1">Fair Play</dt>
               <dd className="flex justify-center">
-                <FairPlayBandBadge points={teamFairPlaySum} />
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-widest text-cup-signalMuted mb-1">Total</dt>
-              <dd className="text-2xl font-bold text-cup-signal tabular-nums">
-                {myStanding.totalScore ?? myStanding.leaguePoints}
+                <FairPlayBandBadge points={teamFairPlayPercentage} percentage />
               </dd>
             </div>
           </dl>

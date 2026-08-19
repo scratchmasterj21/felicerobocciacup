@@ -3,6 +3,7 @@ import {
   buildFairPlayByTeamIdFromStudents,
   clampStudentFairPlayPoints,
   fairPlayBandForShare,
+  fairPlayPercentageForTeam,
   isFairPlayLockedForGrade,
   isJapanCupEligible,
   reverseFairPlayDelta,
@@ -12,28 +13,33 @@ import {
 } from "./fairPlay";
 
 describe("splitFairPlayPool", () => {
-  it("splits 15 across 3 students as 5,5,5", () => {
+  it("gives every student an equal personal balance of 15", () => {
     const m = splitFairPlayPool(["s3", "s1", "s2"]);
-    expect(m.get("s1")).toEqual({ points: 5, initialShare: 5 });
-    expect(m.get("s2")).toEqual({ points: 5, initialShare: 5 });
-    expect(m.get("s3")).toEqual({ points: 5, initialShare: 5 });
+    expect(m.get("s1")).toEqual({ points: 15, initialShare: 15 });
+    expect(m.get("s2")).toEqual({ points: 15, initialShare: 15 });
+    expect(m.get("s3")).toEqual({ points: 15, initialShare: 15 });
   });
 
-  it("splits 15 across 4 students as 4,4,4,3 by sorted id", () => {
+  it("does not vary the balance with roster size or student id", () => {
     const m = splitFairPlayPool(["d", "a", "c", "b"]);
-    expect(m.get("a")).toEqual({ points: 4, initialShare: 4 });
-    expect(m.get("b")).toEqual({ points: 4, initialShare: 4 });
-    expect(m.get("c")).toEqual({ points: 4, initialShare: 4 });
-    expect(m.get("d")).toEqual({ points: 3, initialShare: 3 });
-    const total = [...m.values()].reduce((s, v) => s + v.points, 0);
-    expect(total).toBe(15);
-  });
-
-  it("splits 15 across 5 students as 3 each", () => {
-    const m = splitFairPlayPool(["a", "b", "c", "d", "e"]);
     for (const v of m.values()) {
-      expect(v).toEqual({ points: 3, initialShare: 3 });
+      expect(v).toEqual({ points: 15, initialShare: 15 });
     }
+  });
+});
+
+describe("fairPlayPercentageForTeam", () => {
+  it("compares differently sized rosters by remaining percentage", () => {
+    const students = {
+      a1: { teamId: "a", fairPlayPoints: 12, fairPlayInitialShare: 15 },
+      a2: { teamId: "a", fairPlayPoints: 15, fairPlayInitialShare: 15 },
+      b1: { teamId: "b", fairPlayPoints: 9, fairPlayInitialShare: 15 },
+      b2: { teamId: "b", fairPlayPoints: 15, fairPlayInitialShare: 15 },
+      b3: { teamId: "b", fairPlayPoints: 15, fairPlayInitialShare: 15 },
+      b4: { teamId: "b", fairPlayPoints: 15, fairPlayInitialShare: 15 },
+    };
+    expect(fairPlayPercentageForTeam(students, "a")).toBe(90);
+    expect(fairPlayPercentageForTeam(students, "b")).toBe(90);
   });
 });
 
@@ -63,8 +69,8 @@ describe("buildFairPlayByTeamIdFromStudents", () => {
     };
     const teams = { t1: { fairPlayPoints: 15 }, t2: { fairPlayPoints: 10 } };
     const m = buildFairPlayByTeamIdFromStudents(students, ["t1", "t2"], teams);
-    expect(m.get("t1")).toBe(9);
-    expect(m.get("t2")).toBe(10);
+    expect(m.get("t1")).toBe(90);
+    expect(m.get("t2")).toBeCloseTo(66.7);
   });
 });
 

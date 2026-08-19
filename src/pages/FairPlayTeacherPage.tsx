@@ -101,9 +101,10 @@ function FairPlayTeacherContent() {
       ) : (
         <>
           <p className="text-sm text-cup-muted leading-relaxed">
-            Log behavior incidents for your team. Each team&apos;s 15 points are split across
-            students. Deductions apply to the selected student only; team standing uses the sum.
-            Preliminary phase only — locked when finals are generated.
+            Log behavior incidents for your team. Every student starts with 15 personal
+            points. Deductions apply only to the selected student; the team percentage is
+            used after match points as a standings tie-breaker. Preliminary phase only —
+            locked when finals are generated.
           </p>
           {studentCount === 0 ? (
             <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">

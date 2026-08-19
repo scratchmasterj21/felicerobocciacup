@@ -8,7 +8,7 @@ import {
 import { formatScheduleTokyo } from "@/lib/schedule/tokyo";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getBracketMatchDisplay } from "@/lib/tournament/bracketMatchDisplay";
-import { useCompactLadderLayout } from "@/lib/tournament/bracketLayout";
+import { shouldUseCompactLadderLayout } from "@/lib/tournament/bracketLayout";
 
 const CONNECT_INSET = 10;
 
@@ -103,6 +103,10 @@ export function BracketRounds({
     }
     return out;
   })();
+  const compactLayout = shouldUseCompactLadderLayout(
+    bracketMatches,
+    splitChampionMode
+  );
 
   if (bracketMatches.length === 0) {
     if (japanCupChallengeMatch) return null;
@@ -123,7 +127,6 @@ export function BracketRounds({
     tid ? nameById.get(tid) ?? tid : "—";
   const roundCount = rounds.length;
   const firstRoundCount = rounds[0]?.[1].length ?? 0;
-  const compactLayout = useCompactLadderLayout(bracketMatches, splitChampionMode);
   const p = Boolean(projectionMode);
 
   // Layout constants tuned for TV / projector readability.

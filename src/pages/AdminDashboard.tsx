@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { signOut } from "firebase/auth";
+import { ADMIN_APP_BASE_PATH } from "@/lib/auth/admin";
 import { useTournamentId } from "@/hooks/useTournamentId";
 import { useAuth } from "@/hooks/useAuth";
 import { getFirebaseAuth } from "@/lib/firebase/config";
@@ -44,6 +45,7 @@ import {
   updateQualifyingSchedule,
   updateResurrectionSchedule,
   updateTeamSchool,
+  updateTeam,
   updateTournamentMetaPartial,
   submitResurrectionRegulation,
   submitResurrectionExtraEight,
@@ -128,6 +130,7 @@ import {
 } from "@/lib/tournament/leagueSplit";
 import type { LeagueId } from "@/lib/tournament/leagueSplit";
 import { MatchSectionToolbar } from "@/components/MatchSectionToolbar";
+import { TournamentDataPanel } from "@/components/TournamentDataPanel";
 import {
   JapanCupChallengeScoring,
   JapanCupConfigPanel,
@@ -191,6 +194,7 @@ export function AdminDashboard() {
   const [grade, setGrade] = useState("G1");
   const [liveUrlCopied, setLiveUrlCopied] = useState(false);
   const [copiedTeamId, setCopiedTeamId] = useState<string | null>(null);
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [fMatches, setFMatches] = useState<Record<string, FinalMatchData> | null>(null);
   const [finalsGradeMeta, setFinalsGradeMeta] = useState<FinalsGradeMeta | null>(null);
   const [jcEnabled, setJcEnabled] = useState(false);
@@ -1410,6 +1414,14 @@ export function AdminDashboard() {
               Fair Play (teachers)
             </Link>
           ) : null}
+          {!isPractice ? (
+            <Link
+              to={`${ADMIN_APP_BASE_PATH}/scorekeeper?tournamentId=${encodeURIComponent(tournamentId)}`}
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-cup-accent px-4 text-sm font-semibold text-white shadow-sm"
+            >
+              Scorekeeper focus
+            </Link>
+          ) : null}
           <div className="inline-flex h-10 items-center gap-2 rounded-lg border border-cup-line bg-white px-3">
             <span className="text-xs text-cup-muted whitespace-nowrap">
               {isInterSchoolTournament ? "Live event" : "Live grade"}
@@ -1463,39 +1475,60 @@ export function AdminDashboard() {
         </div>
       </div>
 
-      <nav className="sticky top-0 z-30 -mx-1 px-1 py-2 bg-[#f7f5f0]/95 backdrop-blur border-b border-cup-line/80 flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium">
-        <a href="#admin-tournament" className="text-cup-ink hover:underline">
+      <nav className="sticky top-0 z-30 -mx-1 flex flex-wrap gap-1.5 rounded-xl border border-cup-line/80 bg-[#f7f5f0]/95 p-2 text-sm font-medium shadow-sm backdrop-blur">
+        <a href="#admin-tournament" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
           Tournament
         </a>
-        <a href="#admin-schools" className="text-cup-ink hover:underline">
+        <a href="#admin-schools" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
           Schools
         </a>
-        <a href="#admin-teams" className="text-cup-ink hover:underline">
+        <a href="#admin-teams" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
           Teams
         </a>
+        <a href="#admin-data" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
+          Export & restore
+        </a>
         {fairPlayEnabled || SHOW_STUDENTS_SECTION ? (
-          <a href="#admin-fair-play" className="text-cup-ink hover:underline">
+          <a href="#admin-fair-play" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
             Fair Play
           </a>
         ) : null}
         {isPractice ? (
-          <a href="#admin-practice" className="text-cup-ink hover:underline">
+          <a href="#admin-practice" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
             Practice
           </a>
         ) : (
           <>
-            <a href="#admin-preliminary" className="text-cup-ink hover:underline">
+            <a href="#admin-preliminary" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
               Preliminary
             </a>
-            <a href="#admin-redemption" className="text-cup-ink hover:underline">
+            <a href="#admin-redemption" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
               Redemption
             </a>
-            <a href="#admin-finals" className="text-cup-ink hover:underline">
+            <a href="#admin-finals" className="rounded-lg px-3 py-2 text-cup-ink hover:bg-white">
               Finals
             </a>
           </>
         )}
       </nav>
+
+      {meta ? (
+        <section aria-label="Tournament overview" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <OverviewCard label="Teams" value={poolTeamList.length} hint={`${gradeLabel(grade, meta)} selected`} />
+          <OverviewCard label="Preliminary" value={Object.values(qMatches ?? {}).filter((m) => m.gradeId === grade).length} hint={`${Object.values(qMatches ?? {}).filter((m) => m.gradeId === grade && m.status !== "COMPLETED").length} need scores`} />
+          <OverviewCard label="Finals" value={finalsAll.length} hint={`${finalsAll.filter((m) => m.status !== "COMPLETED").length} need scores`} />
+          <OverviewCard label="Tournament ID" value={tournamentId} hint={isPractice ? "Practice event" : isInterSchoolTournament ? "Interschool event" : "Felice Cup"} compact />
+        </section>
+      ) : null}
+
+      {meta && !isPractice ? (
+        <AdminNextAction
+          tournamentId={tournamentId}
+          teamCount={teamsForBracket(grade, "A").length + teamsForBracket(grade, "B").length}
+          qualifying={Object.values(qMatches ?? {}).filter((match) => match.gradeId === grade)}
+          finals={finalsAll}
+        />
+      ) : null}
 
       <section
         id="admin-tournament"
@@ -1736,6 +1769,8 @@ export function AdminDashboard() {
         )}
       </section>
 
+      <TournamentDataPanel tournamentId={tournamentId} />
+
       <section
         id="admin-schools"
         className="bg-white border border-cup-line rounded-xl p-6 shadow-sm space-y-4 scroll-mt-20"
@@ -1923,6 +1958,13 @@ export function AdminDashboard() {
                       <button
                         type="button"
                         className="text-xs text-cup-accent hover:underline"
+                        onClick={() => setEditingTeamId(t.id)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-cup-accent hover:underline"
                         onClick={() => void copyTeamViewerLink(t.id)}
                       >
                         {copiedTeamId === t.id ? "Copied!" : "Copy team link"}
@@ -2039,6 +2081,13 @@ export function AdminDashboard() {
                       </button>
                       <button
                         type="button"
+                        className="text-xs text-cup-accent hover:underline"
+                        onClick={() => setEditingTeamId(t.id)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
                         className="text-xs text-red-700 hover:underline"
                         onClick={() => void onDeleteTeam(t.id, t.name)}
                       >
@@ -2052,6 +2101,18 @@ export function AdminDashboard() {
           </div>
           ) : null}
         </div>
+        {editingTeamId && teams?.[editingTeamId] ? (
+          <TeamEditPanel
+            key={editingTeamId}
+            tournamentId={tournamentId}
+            teamId={editingTeamId}
+            team={teams[editingTeamId]}
+            schools={schools ?? {}}
+            grades={workingGrades}
+            unified={isUnified}
+            onClose={() => setEditingTeamId(null)}
+          />
+        ) : null}
       </section>
 
       {fairPlayEnabled || SHOW_STUDENTS_SECTION ? (
@@ -2772,6 +2833,166 @@ export function AdminDashboard() {
       </section>
       </>
       ) : null}
+    </div>
+  );
+}
+
+function AdminNextAction({
+  tournamentId,
+  teamCount,
+  qualifying,
+  finals,
+}: {
+  tournamentId: string;
+  teamCount: number;
+  qualifying: QualifyingMatchData[];
+  finals: FinalMatchData[];
+}) {
+  const qualifyingDone = qualifying.filter((match) => match.status === "COMPLETED").length;
+  const finalsDone = finals.filter((match) => match.status === "COMPLETED").length;
+  const total = qualifying.length + finals.length;
+  const done = qualifyingDone + finalsDone;
+  const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+  const scorekeeperHref = `${ADMIN_APP_BASE_PATH}/scorekeeper?tournamentId=${encodeURIComponent(tournamentId)}`;
+
+  let title = "Add teams to get started";
+  let description = "Register the teams for this grade before generating matches.";
+  let href = "#admin-teams";
+  let action = "Go to teams";
+  if (teamCount >= 2 && qualifying.length === 0) {
+    title = "Generate preliminary matches";
+    description = "Teams are ready. Review the pools, then generate the round-robin schedule.";
+    href = "#admin-preliminary";
+    action = "Set up preliminary";
+  } else if (qualifying.length > 0 && qualifyingDone < qualifying.length) {
+    title = `${qualifying.length - qualifyingDone} preliminary matches need scores`;
+    description = "Use Scorekeeper Focus for a cleaner tournament-day scoring workflow.";
+    href = scorekeeperHref;
+    action = "Open Scorekeeper Focus";
+  } else if (qualifying.length > 0 && finals.length === 0) {
+    title = "Preliminary is complete";
+    description = "Review standings and redemption results, then preview seeds and generate finals.";
+    href = "#admin-finals";
+    action = "Prepare finals";
+  } else if (finals.length > 0 && finalsDone < finals.length) {
+    title = `${finals.length - finalsDone} finals matches need scores`;
+    description = "Continue scoring until the tournament champion is decided.";
+    href = scorekeeperHref;
+    action = "Continue scoring";
+  } else if (finals.length > 0) {
+    title = "Tournament results are complete";
+    description = "Download a backup, CSV reports, or the printable results sheet.";
+    href = "#admin-data";
+    action = "Export results";
+  }
+
+  const actionClass = "inline-flex rounded-lg bg-cup-accent px-4 py-2 text-sm font-semibold text-white shadow-sm";
+  return (
+    <section className="rounded-2xl border border-cup-line bg-cup-ink p-5 text-cup-paper shadow-lg md:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-5">
+        <div className="max-w-2xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cup-accent">Recommended next action</p>
+          <h2 className="mt-1 font-display text-xl font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-white/65">{description}</p>
+        </div>
+        {href.startsWith("/") ? <Link to={href} className={actionClass}>{action}</Link> : <a href={href} className={actionClass}>{action}</a>}
+      </div>
+      {total > 0 ? (
+        <div className="mt-5">
+          <div className="mb-1 flex justify-between text-xs text-white/60"><span>Recorded results</span><span>{done}/{total} · {progress}%</span></div>
+          <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cup-accent transition-all" style={{ width: `${progress}%` }} /></div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function TeamEditPanel({
+  tournamentId,
+  teamId,
+  team,
+  schools,
+  grades,
+  unified,
+  onClose,
+}: {
+  tournamentId: string;
+  teamId: string;
+  team: TeamRecord;
+  schools: Record<string, { name: string; shortLabel?: string }>;
+  grades: readonly string[];
+  unified: boolean;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(team.name);
+  const [code, setCode] = useState(team.code ?? "");
+  const [gradeId, setGradeId] = useState(team.gradeId);
+  const [divisionId, setDivisionId] = useState<"A" | "B">(team.divisionId);
+  const [schoolId, setSchoolId] = useState(team.schoolId ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await updateTeam(tournamentId, teamId, {
+        name,
+        code,
+        gradeId,
+        divisionId,
+        schoolId,
+      });
+      onClose();
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Could not update team.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={(event) => void save(event)} className="rounded-xl border-2 border-cup-accent/30 bg-white p-4 shadow-sm space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-lg font-semibold">Edit team</h3>
+          <p className="font-mono text-xs text-cup-muted">{teamId}</p>
+        </div>
+        <button type="button" onClick={onClose} className="text-sm text-cup-muted hover:text-cup-ink">Close</button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <label className="text-sm"><span className="mb-1 block">Team name</span><input required value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-md border border-cup-line px-3 py-2" /></label>
+        <label className="text-sm"><span className="mb-1 block">Code</span><input value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded-md border border-cup-line px-3 py-2" /></label>
+        <label className="text-sm"><span className="mb-1 block">Grade</span><select value={gradeId} onChange={(e) => setGradeId(e.target.value)} className="w-full rounded-md border border-cup-line bg-white px-3 py-2">{grades.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        <label className="text-sm"><span className="mb-1 block">Pool</span><select value={divisionId} onChange={(e) => setDivisionId(e.target.value === "B" ? "B" : "A")} className="w-full rounded-md border border-cup-line bg-white px-3 py-2"><option value="A">Pool A</option>{!unified ? <option value="B">Pool B</option> : null}</select></label>
+        <label className="text-sm"><span className="mb-1 block">School</span><select value={schoolId} onChange={(e) => setSchoolId(e.target.value)} className="w-full rounded-md border border-cup-line bg-white px-3 py-2"><option value="">—</option>{Object.entries(schools).map(([id, school]) => <option key={id} value={id}>{school.shortLabel || school.name}</option>)}</select></label>
+      </div>
+      <p className="text-xs text-cup-muted">Name, code, and school can be updated at any time. Grade and pool changes are refused after the team appears in generated matches.</p>
+      {error ? <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
+      <button type="submit" disabled={busy} className="rounded-lg bg-cup-ink px-4 py-2 text-sm font-semibold text-cup-paper disabled:opacity-50">{busy ? "Saving…" : "Save team changes"}</button>
+    </form>
+  );
+}
+
+function OverviewCard({
+  label,
+  value,
+  hint,
+  compact,
+}: {
+  label: string;
+  value: string | number;
+  hint: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-cup-line bg-white p-4 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wider text-cup-muted">{label}</p>
+      <p className={`mt-1 font-display font-semibold text-cup-ink ${compact ? "truncate text-lg" : "text-3xl"}`} title={String(value)}>
+        {value}
+      </p>
+      <p className="mt-1 text-xs text-cup-muted">{hint}</p>
     </div>
   );
 }
