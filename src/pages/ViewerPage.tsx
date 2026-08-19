@@ -901,8 +901,18 @@ function LiveMatchSpotlight({
   nameById: Map<string, string>;
   now: number;
 }) {
-  const featured = live[0] ?? upcoming[0];
-  const queue = live.length > 0 ? upcoming : upcoming.slice(1);
+  const firstUpcomingAt = upcoming[0]?.schedule?.startAt;
+  const featuredMatches = live.length > 0
+    ? live
+    : upcoming.filter((match) => match.schedule?.startAt === firstUpcomingAt);
+  const featuredIds = new Set(featuredMatches.map((match) => match.id));
+  const queue = upcoming.filter((match) => !featuredIds.has(match.id)).slice(0, 4);
+  const featuredStages = [...new Set(featuredMatches.map((match) => match.stage))];
+  const featuredLabel = featuredStages.length === 1
+    ? featuredStages[0]
+    : featuredMatches.length > 0
+      ? `${featuredMatches.length} matches`
+      : "Tournament overview";
   const teamName = (id?: string) => (id ? nameById.get(id) ?? id : "TBD");
   const time = (match: LiveTimelineMatch) =>
     match.schedule
@@ -916,21 +926,56 @@ function LiveMatchSpotlight({
           <span className={`rounded-full px-3 py-1 text-xs font-black tracking-widest ${live.length > 0 ? "animate-pulse bg-red-500 text-white" : "bg-cup-signal text-cup-stage"}`}>
             {live.length > 0 ? "LIVE" : "NEXT"}
           </span>
-          <span className="text-sm font-semibold text-slate-300">{featured?.stage ?? "Tournament overview"}</span>
+          <span className="text-sm font-semibold text-slate-300">{featuredLabel}</span>
         </div>
         <time className="font-displayWide text-xl font-semibold tabular-nums text-cup-signal">
           {new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" }).format(new Date(now))}
           <span className="ml-2 text-xs font-normal text-slate-400">JST</span>
         </time>
       </div>
-      {featured ? (
-        <div className="grid items-center gap-4 px-5 py-7 md:grid-cols-[1fr_auto_1fr] md:px-10 md:py-10">
-          <div className="text-center md:text-right"><p className="font-displayWide text-2xl font-bold text-slate-50 md:text-4xl">{teamName(featured.teamAId)}</p></div>
-          <div className="text-center">
-            {featured.score ? <p className="font-display text-4xl font-black tabular-nums text-cup-signal md:text-6xl">{featured.score}</p> : <p className="font-display text-2xl font-semibold text-slate-400">VS</p>}
-            <p className="mt-2 text-sm font-semibold text-slate-400">{time(featured)}{featured.schedule?.court ? ` · ${featured.schedule.court}` : ""}</p>
-          </div>
-          <div className="text-center md:text-left"><p className="font-displayWide text-2xl font-bold text-slate-50 md:text-4xl">{teamName(featured.teamBId)}</p></div>
+      {featuredMatches.length > 0 ? (
+        <div className={`grid gap-4 px-5 py-7 md:px-10 md:py-10 ${
+          featuredMatches.length > 1 ? "xl:grid-cols-2" : ""
+        }`}>
+          {featuredMatches.map((match) => (
+            <div
+              key={match.id}
+              className={`grid items-center gap-3 md:grid-cols-[1fr_auto_1fr] ${
+                featuredMatches.length > 1
+                  ? "rounded-xl border border-cup-stageBorder bg-black/15 px-4 py-6"
+                  : ""
+              }`}
+            >
+              <div className="text-center md:text-right">
+                <p className={`font-displayWide font-bold text-slate-50 ${
+                  featuredMatches.length > 1 ? "text-xl md:text-2xl" : "text-2xl md:text-4xl"
+                }`}>
+                  {teamName(match.teamAId)}
+                </p>
+              </div>
+              <div className="text-center">
+                {match.score ? (
+                  <p className={`font-display font-black tabular-nums text-cup-signal ${
+                    featuredMatches.length > 1 ? "text-3xl md:text-4xl" : "text-4xl md:text-6xl"
+                  }`}>
+                    {match.score}
+                  </p>
+                ) : (
+                  <p className="font-display text-2xl font-semibold text-slate-400">VS</p>
+                )}
+                <p className="mt-2 whitespace-nowrap text-sm font-semibold text-slate-400">
+                  {time(match)}{match.schedule?.court ? ` · ${match.schedule.court}` : ""}
+                </p>
+              </div>
+              <div className="text-center md:text-left">
+                <p className={`font-displayWide font-bold text-slate-50 ${
+                  featuredMatches.length > 1 ? "text-xl md:text-2xl" : "text-2xl md:text-4xl"
+                }`}>
+                  {teamName(match.teamBId)}
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
         <p className="px-5 py-10 text-center text-lg text-slate-400">No scheduled matches yet.</p>
